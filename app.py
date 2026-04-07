@@ -3,6 +3,17 @@ import pandas as pd
 from datetime import datetime
 
 st.set_page_config(layout="wide")
+
+# ===============================
+# 🖼️ LOGO EN SIDEBAR
+# ===============================
+import os
+
+if os.path.exists("logo.png"):
+    st.sidebar.image("logo.png", width=180)
+else:
+    st.sidebar.warning("Logo no encontrado")
+
 st.title("📊 Inventario vs Ventas")
 
 # ===============================
@@ -79,6 +90,11 @@ df = inv.merge(
 df = df.merge(conteo_ref, on=["sucursal", "referencia"], how="left")
 
 # ===============================
+# MARCA
+# ===============================
+df["marca"] = df["referencia"].astype(str).str.split().str[0]
+
+# ===============================
 # VENDIDO
 # ===============================
 df["vendido"] = df["fecha_venta"].notna()
@@ -142,15 +158,31 @@ df["promedio_3_meses"] = (
 )
 
 # ===============================
-# FILTRO
+# 🎛️ FILTROS
 # ===============================
 st.sidebar.header("Filtros")
 
+# Sucursal
 sucursales = ["Todas"] + sorted(df["sucursal"].dropna().unique())
-sel = st.sidebar.selectbox("Sucursal", sucursales)
+sel_sucursal = st.sidebar.selectbox("Sucursal", sucursales)
 
-if sel != "Todas":
-    df = df[df["sucursal"] == sel]
+# Tipo
+tipos = ["Todos"] + sorted(df["tipo"].dropna().unique())
+sel_tipo = st.sidebar.selectbox("Tipo", tipos)
+
+# Marca
+marcas = ["Todas"] + sorted(df["marca"].dropna().unique())
+sel_marca = st.sidebar.selectbox("Marca", marcas)
+
+# Aplicar filtros
+if sel_sucursal != "Todas":
+    df = df[df["sucursal"] == sel_sucursal]
+
+if sel_tipo != "Todos":
+    df = df[df["tipo"] == sel_tipo]
+
+if sel_marca != "Todas":
+    df = df[df["marca"] == sel_marca]
 
 # ===============================
 # KPI
@@ -162,7 +194,7 @@ col2.metric("Vendidos", int((df["vendido"] == "VENDIDO").sum()))
 col3.metric("No vendidos", int((df["vendido"] == "BODEGA").sum()))
 
 # ===============================
-# RESUMEN EJECUTIVO
+# RESUMEN
 # ===============================
 st.subheader("📊 Resumen Ejecutivo")
 
@@ -204,7 +236,7 @@ st.dataframe(resumen[
 ])
 
 # ===============================
-# 🎨 COLOR SEGURO (STREAMLIT CLOUD)
+# 🎨 COLOR VENDIDO
 # ===============================
 def estilo_vendido(df):
     estilos = pd.DataFrame("", index=df.index, columns=df.columns)
