@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
+inv = pd.read_excel("./inventario.xlsx")
+ven = pd.read_excel("./ventas.xlsx")
+
 st.set_page_config(layout="wide")
 st.title("📊 Inventario vs Ventas")
 
