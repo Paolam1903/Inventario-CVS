@@ -2,9 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-inv = pd.read_excel("./inventario.xlsx")
-ven = pd.read_excel("./ventas.xlsx")
-
 st.set_page_config(layout="wide")
 st.title("📊 Inventario vs Ventas")
 
@@ -132,6 +129,19 @@ promedio = (
 df = df.merge(promedio, on="referencia", how="left")
 
 # ===============================
+# FORMATOS
+# ===============================
+df["puntos_producto"] = pd.to_numeric(df["puntos_producto"], errors="coerce").round(1)
+df["puntos_promo"] = pd.to_numeric(df["puntos_promo"], errors="coerce").round(1)
+
+df["promedio_3_meses"] = (
+    pd.to_numeric(df["promedio_3_meses"], errors="coerce")
+    .fillna(0)
+    .round(0)
+    .astype(int)
+)
+
+# ===============================
 # FILTRO
 # ===============================
 st.sidebar.header("Filtros")
@@ -181,17 +191,6 @@ resumen["orden"] = resumen["semaforo"].map(orden)
 
 resumen = resumen.sort_values(by=["orden", "cantidad_bodega"], ascending=[False, False])
 
-df["puntos_producto"] = df["puntos_producto"].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
-df["puntos_promo"] = df["puntos_promo"].map(lambda x: f"{x:.1f}" if pd.notnull(x) else "")
-
-
-df["promedio_3_meses"] = (
-    pd.to_numeric(df["promedio_3_meses"], errors="coerce")
-    .fillna(0)
-    .round(0)
-    .astype(int)
-)
-
 st.dataframe(resumen[
     [
         "sucursal",
@@ -205,15 +204,19 @@ st.dataframe(resumen[
 ])
 
 # ===============================
-# 🎨 COLOR SOLO EN VENDIDO
+# 🎨 COLOR SEGURO (STREAMLIT CLOUD)
 # ===============================
-def color_vendido(val):
-    if val == "VENDIDO":
-        return "background-color: #28a745; color: white; font-weight: bold"
-    elif val == "BODEGA":
-        return "background-color: #dc3545; color: white; font-weight: bold"
-    else:
-        return ""
+def estilo_vendido(df):
+    estilos = pd.DataFrame("", index=df.index, columns=df.columns)
+    
+    for i in df.index:
+        val = df.loc[i, "vendido"]
+        if val == "VENDIDO":
+            estilos.loc[i, "vendido"] = "background-color: #28a745; color: white; font-weight: bold"
+        else:
+            estilos.loc[i, "vendido"] = "background-color: #dc3545; color: white; font-weight: bold"
+    
+    return estilos
 
 # ===============================
 # DETALLE
@@ -237,6 +240,4 @@ columnas = [
     "semaforo"
 ]
 
-st.dataframe(
-    df[columnas].style.applymap(color_vendido, subset=["vendido"])
-)
+st.dataframe(df[columnas].style.apply(estilo_vendido, axis=None))
