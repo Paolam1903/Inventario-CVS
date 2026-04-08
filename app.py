@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario vs Ventas")
+st.title("📊 Inventario del 8 vs Ventas de enero a 7 de abril")
 
 # ===============================
 # CARGA
