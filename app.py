@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 8 vs Ventas de enero a 7 de abril")
+st.title("📊 Inventario vs Ventas")
 
 # ===============================
 # CARGA
@@ -26,7 +26,7 @@ inv.columns = inv.columns.str.lower().str.strip()
 ven.columns = ven.columns.str.lower().str.strip()
 
 # ===============================
-# RENOMBRAR SEGURO
+# RENOMBRAR
 # ===============================
 inv = inv.rename(columns={
     "serial": "serial",
@@ -45,7 +45,7 @@ ven = ven.rename(columns={
 })
 
 # ===============================
-# ASEGURAR COLUMNAS EXISTAN
+# ASEGURAR COLUMNAS
 # ===============================
 for col in ["indicador_conversion", "puntos_producto", "puntos_promo", "lista_precios"]:
     if col not in ven.columns:
@@ -58,7 +58,7 @@ inv["serial"] = inv["serial"].astype(str).str.replace(".0", "", regex=False).str
 ven["serial"] = ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
 
 # ===============================
-# FECHAS SEGURAS
+# FECHAS
 # ===============================
 inv["fecha_ingreso"] = pd.to_datetime(inv["fecha_ingreso"], errors="coerce")
 ven["fecha_venta"] = pd.to_datetime(ven["fecha_venta"], errors="coerce")
@@ -69,18 +69,39 @@ ven["fecha_venta"] = pd.to_datetime(ven["fecha_venta"], errors="coerce")
 inv["marca"] = inv["referencia"].astype(str).str.split().str[0]
 
 # ===============================
+# CRUCE INVENTARIO
+# ===============================
+# ===============================
+# ASEGURAR COLUMNAS DE VENTAS
+# ===============================
+columnas_ventas = [
+    "serial",
+    "fecha_venta",
+    "indicador_conversion",
+    "puntos_producto",
+    "puntos_promo",
+    "lista_precios"
+]
+
+for col in columnas_ventas:
+    if col not in ven.columns:
+        ven[col] = None
+
+# ===============================
 # CRUCE INVENTARIO + VENTAS
 # ===============================
 df_inv = inv.merge(
-    ven[["serial", "fecha_venta", "indicador_conversion", "puntos_producto", "puntos_promo", "lista_precios"]],
+    ven[columnas_ventas],
     on="serial",
     how="left"
 )
 
 df_inv["origen"] = "INVENTARIO"
 
+
+
 # ===============================
-# VENTAS QUE NO ESTÁN EN INVENTARIO
+# VENTAS SIN INVENTARIO
 # ===============================
 ventas_no_inv = ven[~ven["serial"].isin(inv["serial"])].copy()
 
@@ -90,6 +111,15 @@ ventas_no_inv["tipo"] = "VENTA"
 ventas_no_inv["fecha_ingreso"] = pd.NaT
 ventas_no_inv["marca"] = ventas_no_inv["referencia"].astype(str).str.split().str[0]
 ventas_no_inv["origen"] = "VENTA"
+
+# ===============================
+# ASEGURAR COLUMNAS EN VENTAS SIN INVENTARIO
+# ===============================
+for col in ["indicador_conversion", "puntos_producto", "puntos_promo", "lista_precios"]:
+    if col not in ventas_no_inv.columns:
+        ventas_no_inv[col] = None
+
+
 
 # ===============================
 # UNIFICAR
@@ -103,13 +133,16 @@ df["vendido"] = df["fecha_venta"].notna()
 df["vendido"] = df["vendido"].map({True: "VENDIDO", False: "BODEGA"})
 
 # ===============================
-# SEMÁFORO
+# TIEMPO EN INVENTARIO
 # ===============================
 hoy = pd.to_datetime(datetime.today())
 
 df["dias"] = (hoy - df["fecha_ingreso"]).dt.days
 df["meses"] = (df["dias"] / 30).fillna(0)
 
+# ===============================
+# SEMÁFORO
+# ===============================
 def semaforo(x):
     if x <= 1:
         return "🟢 Verde"
@@ -121,7 +154,7 @@ def semaforo(x):
 df["semaforo"] = df["meses"].apply(semaforo)
 
 # ===============================
-# PROMEDIO 3 MESES (VENTAS)
+# PROMEDIO 3 MESES
 # ===============================
 ultimos = ven[ven["fecha_venta"] >= (hoy - pd.DateOffset(months=3))]
 
@@ -142,7 +175,7 @@ df = df.merge(promedio, on="referencia", how="left")
 df["ventas"] = df["ventas"].fillna(0).round(0).astype(int)
 
 # ===============================
-# CANTIDAD INVENTARIO REAL
+# CANTIDAD INVENTARIO
 # ===============================
 conteo = inv.groupby(["sucursal", "referencia"])["serial"].nunique().reset_index()
 conteo = conteo.rename(columns={"serial": "cantidad_referencia"})
@@ -187,23 +220,29 @@ c2.metric("Vendidos", (df["vendido"]=="VENDIDO").sum())
 c3.metric("Ventas sin inventario", df[df["origen"]=="VENTA"].shape[0])
 
 # ===============================
-# RESUMEN
+# RESUMEN EJECUTIVO
 # ===============================
 st.subheader("📊 Resumen Ejecutivo")
 
-resumen = df.groupby(["sucursal", "referencia"]).agg(
+# 🔥 SOLO INVENTARIO PARA MESES
+resumen = df[df["origen"] == "INVENTARIO"].groupby(["sucursal", "referencia"]).agg(
     cantidad_bodega=("cantidad_referencia", "max"),
     vendidos=("vendido", lambda x: (x == "VENDIDO").sum()),
     promedio_3_meses=("ventas", "mean"),
-    meses_bodega=("meses", "mean")
+    meses_bodega=("meses", "mean")  # 👈 ESTA ES LA CLAVE
 ).reset_index()
 
+# FORMATO
 resumen["cantidad_bodega"] = resumen["cantidad_bodega"].fillna(0)
 resumen["promedio_3_meses"] = resumen["promedio_3_meses"].fillna(0).round(0).astype(int)
+
+# 🔥 MESES ENTERO
 resumen["meses_bodega"] = resumen["meses_bodega"].fillna(0).round(0).astype(int)
 
+# SUGERIDO
 resumen["sugerido_venta_mes"] = (resumen["cantidad_bodega"]/3).fillna(0).round(0).astype(int)
 
+# SEMÁFORO
 resumen["semaforo"] = resumen["meses_bodega"].apply(semaforo)
 
 orden = {"🔴 Rojo":3,"🟡 Amarillo":2,"🟢 Verde":1}
@@ -216,12 +255,14 @@ st.dataframe(resumen[[
     "referencia",
     "cantidad_bodega",
     "vendidos",
+    "promedio_3_meses",
+    "meses_bodega",  # 👈 YA SALE AQUÍ
     "sugerido_venta_mes",
     "semaforo"
 ]])
 
 # ===============================
-# DETALLE (SIN STYLER PESADO)
+# DETALLE
 # ===============================
 st.subheader("📋 Detalle Inventario")
 
@@ -237,12 +278,10 @@ columnas = [
     "indicador_conversion",
     "puntos_producto",
     "puntos_promo",
-    "lista_precios",
     "ventas",
     "semaforo"
 ]
 
-# evitar errores si falta alguna columna
 columnas = [c for c in columnas if c in df.columns]
 
 st.dataframe(df[columnas])
