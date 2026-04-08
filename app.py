@@ -60,6 +60,22 @@ inv["fecha_ingreso"] = pd.to_datetime(inv["fecha_ingreso"], errors="coerce")
 ven["fecha_venta"] = pd.to_datetime(ven["fecha_venta"], errors="coerce")
 
 # ===============================
+# DETECTAR NOMBRE REAL DE FECHA EN VENTAS
+# ===============================
+col_fecha = None
+
+for col in ven.columns:
+    if "fecha" in col:
+        col_fecha = col
+        break
+
+if col_fecha is None:
+    st.error(f"No se encontró columna de fecha en ventas: {ven.columns.tolist()}")
+    st.stop()
+
+ven = ven.rename(columns={col_fecha: "fecha_venta"})
+
+# ===============================
 # CRUCE INVENTARIO
 # ===============================
 df_inv = inv.merge(
