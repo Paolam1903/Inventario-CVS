@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario vs Ventas")
+st.title("📊 Inventario del 13 de abril vs Ventas de enero al 12 de abril")
 
 # ===============================
 # CARGA
@@ -62,6 +62,8 @@ ven["serial"] = ven["serial"].astype(str).str.replace(".0", "", regex=False).str
 # ===============================
 inv["fecha_ingreso"] = pd.to_datetime(inv["fecha_ingreso"], errors="coerce")
 ven["fecha_venta"] = pd.to_datetime(ven["fecha_venta"], errors="coerce")
+
+
 
 # ===============================
 # MARCA
@@ -140,6 +142,8 @@ hoy = pd.to_datetime(datetime.today())
 df["dias"] = (hoy - df["fecha_ingreso"]).dt.days
 df["meses"] = (df["dias"] / 30).fillna(0)
 
+
+
 # ===============================
 # SEMÁFORO
 # ===============================
@@ -152,6 +156,24 @@ def semaforo(x):
         return "🔴 Rojo"
 
 df["semaforo"] = df["meses"].apply(semaforo)
+
+
+
+# ===============================
+# 📊 TABLA PEQUEÑA POR MES (YA FILTRADA)
+# ===============================
+tabla_mes = df.copy()
+
+tabla_mes["mes_ingreso"] = tabla_mes["fecha_ingreso"].dt.to_period("M").astype(str)
+
+tabla_mes = (
+    tabla_mes.groupby("mes_ingreso")["serial"]
+    .nunique()
+    .reset_index(name="cantidad")
+    .sort_values("mes_ingreso")
+)
+
+
 
 # ===============================
 # PROMEDIO 3 MESES
@@ -182,8 +204,9 @@ conteo = conteo.rename(columns={"serial": "cantidad_referencia"})
 
 df = df.merge(conteo, on=["sucursal", "referencia"], how="left")
 
+
 # ===============================
-# FILTROS
+# 🎛️ FILTROS (PRIMERO)
 # ===============================
 st.sidebar.header("Filtros")
 
@@ -198,26 +221,83 @@ sel_tipo = st.sidebar.selectbox("Tipo", tipos)
 marcas = ["Todas"] + sorted(df["marca"].dropna().unique())
 sel_marca = st.sidebar.selectbox("Marca", marcas)
 
+# Aplicar filtros
+df_filtrado = df.copy()
+
 if origen_sel != "Todos":
-    df = df[df["origen"] == origen_sel]
+    df_filtrado = df_filtrado[df_filtrado["origen"] == origen_sel]
 
 if sel_sucursal != "Todas":
-    df = df[df["sucursal"] == sel_sucursal]
+    df_filtrado = df_filtrado[df_filtrado["sucursal"] == sel_sucursal]
 
 if sel_tipo != "Todos":
-    df = df[df["tipo"] == sel_tipo]
+    df_filtrado = df_filtrado[df_filtrado["tipo"] == sel_tipo]
 
 if sel_marca != "Todas":
-    df = df[df["marca"] == sel_marca]
+    df_filtrado = df_filtrado[df_filtrado["marca"] == sel_marca]
+
 
 # ===============================
-# KPI
+# 🎨 FUNCIÓN COLOR (ANTES DE USAR)
 # ===============================
-c1, c2, c3 = st.columns(3)
+def color_fila(row):
+    hoy = pd.to_datetime(datetime.today())
+    fecha = pd.to_datetime(row["mes_ingreso"])
 
-c1.metric("Inventario", df[df["origen"]=="INVENTARIO"].shape[0])
-c2.metric("Vendidos", (df["vendido"]=="VENDIDO").sum())
-c3.metric("Ventas sin inventario", df[df["origen"]=="VENTA"].shape[0])
+    meses_diff = (hoy.year - fecha.year) * 12 + (hoy.month - fecha.month)
+
+    if meses_diff <= 1:
+        color = "#28a745"  # Verde
+    elif meses_diff == 2:
+        color = "#ffc107"  # Amarillo
+    else:
+        color = "#dc3545"  # Rojo
+
+    return [f"background-color: {color}; color: white"] * len(row)
+
+
+# ===============================
+# 📊 TABLA PEQUEÑA (YA FILTRADA)
+# ===============================
+tabla_mes = df_filtrado.copy()
+
+tabla_mes = tabla_mes[tabla_mes["origen"] == "INVENTARIO"]  # 🔥 solo inventario
+
+tabla_mes["mes_ingreso"] = tabla_mes["fecha_ingreso"].dt.to_period("M").astype(str)
+
+tabla_mes = (
+    tabla_mes.groupby("mes_ingreso")["serial"]
+    .nunique()
+    .reset_index(name="cantidad")
+    .sort_values("mes_ingreso")
+)
+
+
+# ===============================
+# 📊 DISTRIBUCIÓN EN COLUMNAS
+# ===============================
+col1, col2 = st.columns([1, 2])
+
+# 👉 TABLA IZQUIERDA
+with col1:
+    st.markdown("### 📅 Inventario por Mes")
+
+    st.dataframe(
+        tabla_mes.style.apply(color_fila, axis=1),
+        height=250
+    )
+
+# 👉 KPI DERECHA
+with col2:
+    st.markdown("### 📊 Indicadores")
+
+    k1, k2, k3 = st.columns(3)
+
+    k1.metric("📦 Inventario", df_filtrado[df_filtrado["origen"]=="INVENTARIO"].shape[0])
+    k2.metric("✅ Vendidos", (df_filtrado["vendido"]=="VENDIDO").sum())
+    k3.metric("🚫 Ventas sin inventario", df_filtrado[df_filtrado["origen"]=="VENTA"].shape[0])
+
+
 
 # ===============================
 # RESUMEN EJECUTIVO
@@ -225,41 +305,44 @@ c3.metric("Ventas sin inventario", df[df["origen"]=="VENTA"].shape[0])
 st.subheader("📊 Resumen Ejecutivo")
 
 # 🔥 SOLO INVENTARIO PARA MESES
-resumen = df[df["origen"] == "INVENTARIO"].groupby(["sucursal", "referencia"]).agg(
+resumen = df_filtrado[df_filtrado["origen"] == "INVENTARIO"].groupby(["sucursal", "referencia"]).agg(
     cantidad_bodega=("cantidad_referencia", "max"),
-    vendidos=("vendido", lambda x: (x == "VENDIDO").sum()),
-    promedio_3_meses=("ventas", "mean"),
-    meses_bodega=("meses", "mean")  # 👈 ESTA ES LA CLAVE
+    meses_bodega=("meses", "mean")
 ).reset_index()
 
 # FORMATO
 resumen["cantidad_bodega"] = resumen["cantidad_bodega"].fillna(0)
-resumen["promedio_3_meses"] = resumen["promedio_3_meses"].fillna(0).round(0).astype(int)
 
 # 🔥 MESES ENTERO
 resumen["meses_bodega"] = resumen["meses_bodega"].fillna(0).round(0).astype(int)
 
 # SUGERIDO
-resumen["sugerido_venta_mes"] = (resumen["cantidad_bodega"]/3).fillna(0).round(0).astype(int)
+resumen["sugerido_venta_mes"] = (
+    (resumen["cantidad_bodega"] / 3)
+    .fillna(0)
+    .round(0)
+    .astype(int)
+)
 
 # SEMÁFORO
 resumen["semaforo"] = resumen["meses_bodega"].apply(semaforo)
 
-orden = {"🔴 Rojo":3,"🟡 Amarillo":2,"🟢 Verde":1}
+orden = {"🔴 Rojo": 3, "🟡 Amarillo": 2, "🟢 Verde": 1}
 resumen["orden"] = resumen["semaforo"].map(orden)
 
-resumen = resumen.sort_values(by=["orden","cantidad_bodega"], ascending=[False, False])
+resumen = resumen.sort_values(by=["orden", "cantidad_bodega"], ascending=[False, False])
 
-st.dataframe(resumen[[
-    "sucursal",
-    "referencia",
-    "cantidad_bodega",
-    "vendidos",
-    "promedio_3_meses",
-    "meses_bodega",  # 👈 YA SALE AQUÍ
-    "sugerido_venta_mes",
-    "semaforo"
-]])
+st.dataframe(resumen[
+    [
+        "sucursal",
+        "referencia",
+        "cantidad_bodega",
+        "meses_bodega",
+        "sugerido_venta_mes",
+        "semaforo"
+    ]
+])
+
 
 # ===============================
 # DETALLE
@@ -275,13 +358,12 @@ columnas = [
     "fecha_ingreso",
     "fecha_venta",
     "vendido",
-    "indicador_conversion",
     "puntos_producto",
     "puntos_promo",
     "ventas",
     "semaforo"
 ]
 
-columnas = [c for c in columnas if c in df.columns]
+columnas = [c for c in columnas if c in df_filtrado.columns]
 
-st.dataframe(df[columnas])
+st.dataframe(df_filtrado[columnas])
