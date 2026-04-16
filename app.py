@@ -11,359 +11,534 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 13 de abril vs Ventas de enero al 12 de abril")
+st.title("📊 Inventario del 16 de abril vs Ventas de enero al 15 de abril")
 
-# ===============================
+# =========================
+# RUTAS
+# =========================
+ruta_inventario = "inventario.xlsx"
+ruta_ventas = "ventas.xlsx"
+
+if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
+    st.error("Faltan archivos")
+    st.stop()
+
+# =========================
 # CARGA
-# ===============================
-inv = pd.read_excel("inventario.xlsx")
-ven = pd.read_excel("ventas.xlsx")
+# =========================
+df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
 
-# ===============================
-# LIMPIAR COLUMNAS
-# ===============================
-inv.columns = inv.columns.str.lower().str.strip()
-ven.columns = ven.columns.str.lower().str.strip()
 
-# ===============================
-# RENOMBRAR
-# ===============================
-inv = inv.rename(columns={
-    "serial": "serial",
-    "referencia": "referencia",
-    "codgrupo": "tipo",
-    "descgrupo": "sucursal",
-    "fecha_ingreso": "fecha_ingreso"
-})
 
-ven = ven.rename(columns={
-    "fecha": "fecha_venta",
-    "indicador conversion": "indicador_conversion",
-    "puntos producto": "puntos_producto",
-    "puntos promo": "puntos_promo",
-    "lista de precios": "lista_precios"
-})
+# =========================
+# LIMPIEZA
+# =========================
+df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
+df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
-# ===============================
-# ASEGURAR COLUMNAS
-# ===============================
-for col in ["indicador_conversion", "puntos_producto", "puntos_promo", "lista_precios"]:
-    if col not in ven.columns:
-        ven[col] = None
-
-# ===============================
-# LIMPIAR SERIAL
-# ===============================
-inv["serial"] = inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-ven["serial"] = ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-
-# ===============================
+# =========================
 # FECHAS
-# ===============================
-inv["fecha_ingreso"] = pd.to_datetime(inv["fecha_ingreso"], errors="coerce")
-ven["fecha_venta"] = pd.to_datetime(ven["fecha_venta"], errors="coerce")
+# =========================
+df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
+df_inv["fecha_ingreso"] = pd.to_datetime(df_inv["fecha_ingreso"], errors="coerce")
+df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
+
+# =========================
+# SERIAL LIMPIO
+# =========================
+df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+
+# =========================
+# FILTROS
+# =========================
+st.sidebar.title("Filtros")
+
+grupo = st.sidebar.multiselect("Grupo", df_inv["grupo"].unique())
+marca = st.sidebar.multiselect("Marca", df_inv["marca"].unique())
+sucursal = st.sidebar.multiselect("Sucursal", df_inv["sucursal"].unique())
+
+df_inv_fil = df_inv.copy()
+df_ven_fil = df_ven.copy()
+
+if grupo:
+    df_inv_fil = df_inv_fil[df_inv_fil["grupo"].isin(grupo)]
+
+if marca:
+    df_inv_fil = df_inv_fil[df_inv_fil["marca"].isin(marca)]
+
+if sucursal:
+    df_inv_fil = df_inv_fil[df_inv_fil["sucursal"].isin(sucursal)]
+    df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
 
 
+# =========================
+# PROTECCIÓN OFICINA PRINCIPAL
+# =========================
+password_ok = True
 
-# ===============================
-# MARCA
-# ===============================
-inv["marca"] = inv["referencia"].astype(str).str.split().str[0]
+if "Oficina Principal" in df_inv_fil["sucursal"].unique():
 
-# ===============================
-# CRUCE INVENTARIO
-# ===============================
-# ===============================
-# ASEGURAR COLUMNAS DE VENTAS
-# ===============================
-columnas_ventas = [
-    "serial",
-    "fecha_venta",
-    "indicador_conversion",
-    "puntos_producto",
-    "puntos_promo",
-    "lista_precios"
-]
+    if "auth_principal" not in st.session_state:
+        st.session_state["auth_principal"] = False
 
-for col in columnas_ventas:
-    if col not in ven.columns:
-        ven[col] = None
+    if not st.session_state["auth_principal"]:
 
-# ===============================
-# CRUCE INVENTARIO + VENTAS
-# ===============================
-df_inv = inv.merge(
-    ven[columnas_ventas],
-    on="serial",
-    how="left"
-)
+        password = st.text_input(
+            "🔒 Contraseña requerida para Oficina Principal",
+            type="password"
+        )
 
-df_inv["origen"] = "INVENTARIO"
+        if password == "1234":  # 🔴 cambia esta clave
+            st.session_state["auth_principal"] = True
+            password_ok = True
+        else:
+            password_ok = False
+            st.warning("Acceso restringido a Oficina Principal")
+
+if not password_ok:
+    st.stop()
 
 
+# =========================
+# TABS
+# =========================
+tab1, tab2, tab3, tab4 = st.tabs(["🚦 Semáforo", "📆 Prestamos sub", "📊 Resumen", "📥 Descarga de Archivos"])
 
-# ===============================
-# VENTAS SIN INVENTARIO
-# ===============================
-ventas_no_inv = ven[~ven["serial"].isin(inv["serial"])].copy()
+# =========================
+# TAB SEMAFORO
+# =========================
+with tab1:
+    st.subheader("📦 Inventario")
 
-ventas_no_inv["referencia"] = ventas_no_inv.get("referencia", "SIN REFERENCIA")
-ventas_no_inv["sucursal"] = ventas_no_inv.get("sucursal", "SIN SUCURSAL")
-ventas_no_inv["tipo"] = "VENTA"
-ventas_no_inv["fecha_ingreso"] = pd.NaT
-ventas_no_inv["marca"] = ventas_no_inv["referencia"].astype(str).str.split().str[0]
-ventas_no_inv["origen"] = "VENTA"
+    # =========================
+    # FILTRO POR REFERENCIA
+    # =========================
+    lista_ref = sorted(df_inv_fil["referencia"].dropna().unique())
 
-# ===============================
-# ASEGURAR COLUMNAS EN VENTAS SIN INVENTARIO
-# ===============================
-for col in ["indicador_conversion", "puntos_producto", "puntos_promo", "lista_precios"]:
-    if col not in ventas_no_inv.columns:
-        ventas_no_inv[col] = None
-
-
-
-# ===============================
-# UNIFICAR
-# ===============================
-df = pd.concat([df_inv, ventas_no_inv], ignore_index=True)
-
-# ===============================
-# VENDIDO
-# ===============================
-df["vendido"] = df["fecha_venta"].notna()
-df["vendido"] = df["vendido"].map({True: "VENDIDO", False: "BODEGA"})
-
-# ===============================
-# TIEMPO EN INVENTARIO
-# ===============================
-hoy = pd.to_datetime(datetime.today())
-
-df["dias"] = (hoy - df["fecha_ingreso"]).dt.days
-df["meses"] = (df["dias"] / 30).fillna(0)
-
-
-
-# ===============================
-# SEMÁFORO
-# ===============================
-def semaforo(x):
-    if x <= 1:
-        return "🟢 Verde"
-    elif x <= 2:
-        return "🟡 Amarillo"
-    else:
-        return "🔴 Rojo"
-
-df["semaforo"] = df["meses"].apply(semaforo)
-
-
-
-# ===============================
-# 📊 TABLA PEQUEÑA POR MES (YA FILTRADA)
-# ===============================
-tabla_mes = df.copy()
-
-tabla_mes["mes_ingreso"] = tabla_mes["fecha_ingreso"].dt.to_period("M").astype(str)
-
-tabla_mes = (
-    tabla_mes.groupby("mes_ingreso")["serial"]
-    .nunique()
-    .reset_index(name="cantidad")
-    .sort_values("mes_ingreso")
-)
-
-
-
-# ===============================
-# PROMEDIO 3 MESES
-# ===============================
-ultimos = ven[ven["fecha_venta"] >= (hoy - pd.DateOffset(months=3))]
-
-ventas_mes = (
-    ultimos.groupby(["referencia", ultimos["fecha_venta"].dt.to_period("M")])
-    .size()
-    .reset_index(name="ventas")
-)
-
-promedio = (
-    ventas_mes.groupby("referencia")["ventas"]
-    .mean()
-    .reset_index()
-)
-
-df = df.merge(promedio, on="referencia", how="left")
-
-df["ventas"] = df["ventas"].fillna(0).round(0).astype(int)
-
-# ===============================
-# CANTIDAD INVENTARIO
-# ===============================
-conteo = inv.groupby(["sucursal", "referencia"])["serial"].nunique().reset_index()
-conteo = conteo.rename(columns={"serial": "cantidad_referencia"})
-
-df = df.merge(conteo, on=["sucursal", "referencia"], how="left")
-
-
-# ===============================
-# 🎛️ FILTROS (PRIMERO)
-# ===============================
-st.sidebar.header("Filtros")
-
-origen_sel = st.sidebar.selectbox("Origen", ["Todos", "INVENTARIO", "VENTA"])
-
-sucursales = ["Todas"] + sorted(df["sucursal"].dropna().unique())
-sel_sucursal = st.sidebar.selectbox("Sucursal", sucursales)
-
-tipos = ["Todos"] + sorted(df["tipo"].dropna().unique())
-sel_tipo = st.sidebar.selectbox("Tipo", tipos)
-
-marcas = ["Todas"] + sorted(df["marca"].dropna().unique())
-sel_marca = st.sidebar.selectbox("Marca", marcas)
-
-# Aplicar filtros
-df_filtrado = df.copy()
-
-if origen_sel != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["origen"] == origen_sel]
-
-if sel_sucursal != "Todas":
-    df_filtrado = df_filtrado[df_filtrado["sucursal"] == sel_sucursal]
-
-if sel_tipo != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["tipo"] == sel_tipo]
-
-if sel_marca != "Todas":
-    df_filtrado = df_filtrado[df_filtrado["marca"] == sel_marca]
-
-
-# ===============================
-# 🎨 FUNCIÓN COLOR (ANTES DE USAR)
-# ===============================
-def color_fila(row):
-    hoy = pd.to_datetime(datetime.today())
-    fecha = pd.to_datetime(row["mes_ingreso"])
-
-    meses_diff = (hoy.year - fecha.year) * 12 + (hoy.month - fecha.month)
-
-    if meses_diff <= 1:
-        color = "#28a745"  # Verde
-    elif meses_diff == 2:
-        color = "#ffc107"  # Amarillo
-    else:
-        color = "#dc3545"  # Rojo
-
-    return [f"background-color: {color}; color: white"] * len(row)
-
-
-# ===============================
-# 📊 TABLA PEQUEÑA (YA FILTRADA)
-# ===============================
-tabla_mes = df_filtrado.copy()
-
-tabla_mes = tabla_mes[tabla_mes["origen"] == "INVENTARIO"]  # 🔥 solo inventario
-
-tabla_mes["mes_ingreso"] = tabla_mes["fecha_ingreso"].dt.to_period("M").astype(str)
-
-tabla_mes = (
-    tabla_mes.groupby("mes_ingreso")["serial"]
-    .nunique()
-    .reset_index(name="cantidad")
-    .sort_values("mes_ingreso")
-)
-
-
-# ===============================
-# 📊 DISTRIBUCIÓN EN COLUMNAS
-# ===============================
-col1, col2 = st.columns([1, 2])
-
-# 👉 TABLA IZQUIERDA
-with col1:
-    st.markdown("### 📅 Inventario por Mes")
-
-    st.dataframe(
-        tabla_mes.style.apply(color_fila, axis=1),
-        height=250
+    ref_select = st.selectbox(
+        "Selecciona una referencia",
+        options=["Todas"] + lista_ref
     )
 
-# 👉 KPI DERECHA
-with col2:
-    st.markdown("### 📊 Indicadores")
+    if ref_select != "Todas":
+        df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
+    else:
+        df_inv_tab = df_inv_fil.copy()
 
-    k1, k2, k3 = st.columns(3)
+    # =========================
+    # SEMÁFORO POR MES
+    # =========================
+    hoy = datetime.today()
+    mes_actual = pd.Period(hoy, freq="M")
+    mes_1 = mes_actual - 1
+    mes_2 = mes_actual - 2
 
-    k1.metric("📦 Inventario", df_filtrado[df_filtrado["origen"]=="INVENTARIO"].shape[0])
-    k2.metric("✅ Vendidos", (df_filtrado["vendido"]=="VENDIDO").sum())
-    k3.metric("🚫 Ventas sin inventario", df_filtrado[df_filtrado["origen"]=="VENTA"].shape[0])
+    df_inv_tab["mes_traslado"] = df_inv_tab["fecha_ultimo_traslado"].dt.to_period("M")
 
+    def semaforo(mes):
+        if pd.isna(mes):
+            return "⚪ Sin dato"
+        elif mes in [mes_actual, mes_1]:
+            return "🟢 Verde"
+        elif mes == mes_2:
+            return "🟡 Amarillo"
+        else:
+            return "🔴 Rojo"
 
+    df_inv_tab["semaforo"] = df_inv_tab["mes_traslado"].apply(semaforo)
 
-# ===============================
-# RESUMEN EJECUTIVO
-# ===============================
-st.subheader("📊 Resumen Ejecutivo")
+    # =========================
+    # DETALLE CON FILTROS
+    # =========================
+    st.subheader("Detalle Inventario con Semáforo")
 
-# 🔥 SOLO INVENTARIO PARA MESES
-resumen = df_filtrado[df_filtrado["origen"] == "INVENTARIO"].groupby(["sucursal", "referencia"]).agg(
-    cantidad_bodega=("cantidad_referencia", "max"),
-    meses_bodega=("meses", "mean")
-).reset_index()
+    df_detalle = df_inv_tab.copy()
 
-# FORMATO
-resumen["cantidad_bodega"] = resumen["cantidad_bodega"].fillna(0)
+    # =========================
+    # FILTROS
+    # =========================
+    col1, col2 = st.columns(2)
 
-# 🔥 MESES ENTERO
-resumen["meses_bodega"] = resumen["meses_bodega"].fillna(0).round(0).astype(int)
+    with col1:
+        filtro_semaforo = st.multiselect(
+            "Filtrar por Semáforo",
+            options=df_detalle["semaforo"].dropna().unique(),
+            default=df_detalle["semaforo"].dropna().unique()
+        )
 
-# SUGERIDO
-resumen["sugerido_venta_mes"] = (
-    (resumen["cantidad_bodega"] / 3)
-    .fillna(0)
-    .round(0)
-    .astype(int)
-)
+    with col2:
+        filtro_estado = st.multiselect(
+            "Filtrar por Estado",
+            options=df_detalle["descestado"].dropna().unique(),
+            default=df_detalle["descestado"].dropna().unique()
+        )
 
-# SEMÁFORO
-resumen["semaforo"] = resumen["meses_bodega"].apply(semaforo)
-
-orden = {"🔴 Rojo": 3, "🟡 Amarillo": 2, "🟢 Verde": 1}
-resumen["orden"] = resumen["semaforo"].map(orden)
-
-resumen = resumen.sort_values(by=["orden", "cantidad_bodega"], ascending=[False, False])
-
-st.dataframe(resumen[
-    [
-        "sucursal",
-        "referencia",
-        "cantidad_bodega",
-        "meses_bodega",
-        "sugerido_venta_mes",
-        "semaforo"
+    # aplicar filtros
+    df_detalle = df_detalle[
+        df_detalle["semaforo"].isin(filtro_semaforo) &
+        df_detalle["descestado"].isin(filtro_estado)
     ]
-])
+
+    # =========================
+    # MOSTRAR TABLA
+    # =========================
+    st.dataframe(df_detalle[[
+        "grupo",
+        "sucursal",
+        "marca",
+        "referencia",
+        "serial",
+        "fecha_ultimo_traslado",
+        "descestado",
+        "semaforo"
+    ]], use_container_width=True)
+
+    # =========================
+    # RESUMEN AGRUPADO
+    # =========================
+    st.subheader("Resumen Inventario")
+
+    inv = df_inv_tab.groupby(
+        ["grupo", "sucursal", "marca", "referencia"]
+    )["serial"].count().reset_index(name="cantidad")
+
+    st.dataframe(inv, use_container_width=True)
+
+    # =========================
+    # RESUMEN POSTPAGO / PREPAGO
+    # =========================
+    st.subheader("Resumen por Referencia")
+
+    base = df_inv_tab.copy()
+    base["grupo"] = base["grupo"].str.upper().str.strip()
+
+    resumen = base.pivot_table(
+        index="referencia",
+        columns="grupo",
+        values="serial",
+        aggfunc="count",
+        fill_value=0
+    ).reset_index()
+
+    resumen.columns.name = None
+
+    for col in ["POSTPAGO", "PREPAGO"]:
+        if col not in resumen.columns:
+            resumen[col] = 0
+
+    resumen["TOTAL"] = resumen["POSTPAGO"] + resumen["PREPAGO"]
+
+    st.dataframe(resumen, use_container_width=True)
 
 
-# ===============================
-# DETALLE
-# ===============================
-st.subheader("📋 Detalle Inventario")
 
-columnas = [
-    "sucursal",
-    "tipo",
-    "referencia",
-    "cantidad_referencia",
-    "serial",
-    "fecha_ingreso",
-    "fecha_venta",
-    "vendido",
-    "puntos_producto",
-    "puntos_promo",
-    "ventas",
-    "semaforo"
-]
+# =========================
+# PRESTAMOS A ASESORES
+# =========================
+# =========================
+# TAB 2 VENTAS
+# =========================
+with tab2:
+    st.title("📆 Prestamos sub")
 
-columnas = [c for c in columnas if c in df_filtrado.columns]
+    df_prestamo = df_inv_fil[
+        df_inv_fil["descestado"] == "Prestamo Asesor"
+    ].copy()
 
-st.dataframe(df_filtrado[columnas])
+    if df_prestamo.empty:
+        st.info("No hay equipos en préstamo con los filtros actuales")
+    else:
+
+        # 🔍 detectar columnas automáticamente
+        col_asesor = [c for c in df_prestamo.columns if "asesor" in c.lower()][0]
+        col_edad = [c for c in df_prestamo.columns if "edadprestamo" in c.lower()][0]
+        col_fecha = [c for c in df_prestamo.columns if "fechaprestamo" in c.lower()][0]
+
+        # =========================
+        # FILTRO POR ASESOR
+        # =========================
+        lista_asesores = sorted(df_prestamo[col_asesor].dropna().unique())
+
+        asesor_select = st.selectbox(
+            "👤 Selecciona un Asesor",
+            options=["Todos"] + lista_asesores
+        )
+
+        if asesor_select != "Todos":
+            df_prestamo = df_prestamo[
+                df_prestamo[col_asesor] == asesor_select
+            ]
+
+        # =========================
+        # SEMÁFORO
+        # =========================
+        def semaforo_prestamo(dias):
+            if pd.isna(dias):
+                return "⚪ Sin dato"
+            elif dias <= 30:
+                return "🟢 Verde"
+            elif dias <= 60:
+                return "🟡 Amarillo"
+            else:
+                return "🔴 Rojo"
+
+        df_prestamo["semaforo"] = df_prestamo[col_edad].apply(semaforo_prestamo)
+
+        # =========================
+        # MÉTRICAS
+        # =========================
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Total equipos", len(df_prestamo))
+        col2.metric("🔴 +60 días", len(df_prestamo[df_prestamo[col_edad] > 60]))
+        col3.metric("🟢 <=30 días", len(df_prestamo[df_prestamo[col_edad] <= 30]))
+
+        # =========================
+        # RESUMEN
+        # =========================
+        resumen = df_prestamo.groupby(
+            ["referencia"]
+        )["serial"].count().reset_index(name="cantidad")
+
+        st.subheader("📊 Resumen por Referencia")
+        st.dataframe(resumen, use_container_width=True)
+
+        # =========================
+        # DETALLE
+        # =========================
+        st.subheader("🔍 Detalle")
+
+        st.dataframe(df_prestamo[[
+            "referencia",
+            "serial",
+            col_fecha,
+            col_asesor,
+            col_edad,
+            "semaforo"
+        ]], use_container_width=True)
+
+
+
+
+# =========================
+# TAB 3 VENTAS
+# =========================
+with tab3:
+    st.title("📊 Ventas vs Inventario")
+
+    hoy = datetime.today()
+    mes_actual = pd.Period(hoy, freq="M")
+
+    # =========================
+    # FILTRO POR REFERENCIA
+    # =========================
+    lista_ref = sorted(df_ven_fil["referencia"].dropna().unique())
+
+    ref_select = st.selectbox(
+        "Selecciona una referencia",
+        options=["Todas"] + lista_ref
+    )
+
+    if ref_select != "Todas":
+        df_ven_tab = df_ven_fil[df_ven_fil["referencia"] == ref_select]
+        df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
+    else:
+        df_ven_tab = df_ven_fil.copy()
+        df_inv_tab = df_inv_fil.copy()
+
+    # =========================
+    # PREPARACIÓN
+    # =========================
+    df_ven_tab["mes"] = df_ven_tab["fecha"].dt.to_period("M")
+
+    # =========================
+    # VENTAS MES ACTUAL
+    # =========================
+    ventas_mes = df_ven_tab[df_ven_tab["mes"] == mes_actual]
+
+    ventas_ref = ventas_mes.groupby(
+        ["referencia"]
+    )["cantidad"].sum().reset_index(name="ventas_mes_actual")
+
+    # =========================
+    # INVENTARIO
+    # =========================
+    inv_ref = df_inv.groupby(
+        ["referencia"]
+    )["serial"].count().reset_index(name="Total_Bodega_general")
+
+    inv_ref_fil = df_inv_tab.groupby(
+        ["referencia"]
+    )["serial"].count().reset_index(name="Total_Bodega_Sucursal")
+
+    # =========================
+    # PROMEDIO 3 MESES CORRECTO
+    # =========================
+    meses_validos = [mes_actual - i for i in range(1, 4)]
+
+    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
+
+    ventas_mes_ref = df_3m.groupby(
+        ["referencia", "mes"]
+    )["cantidad"].sum().reset_index()
+
+    ventas_mes_ref = ventas_mes_ref.pivot_table(
+        index="referencia",
+        columns="mes",
+        values="cantidad",
+        fill_value=0
+    )
+
+    prom = ventas_mes_ref.mean(axis=1).round(0).astype(int).reset_index(name="promedio_3m")
+
+    # =========================
+    # UNIÓN FINAL
+    # =========================
+    final = ventas_ref.merge(inv_ref, on="referencia", how="left")
+    final = final.merge(inv_ref_fil, on="referencia", how="left")
+    final = final.merge(prom, on="referencia", how="left")
+
+    final.fillna(0, inplace=True)
+
+    st.dataframe(final, use_container_width=True)
+
+    # =========================
+    # DETALLE VENTAS
+    # =========================
+    st.subheader("Detalle Ventas")
+
+    # =========================
+    # FILTRO POR ROL VENDEDOR
+    # =========================
+    lista_roles = sorted(ventas_mes["rolvendedor"].dropna().unique())
+
+    rol_select = st.selectbox(
+        "Filtrar por Rol Vendedor",
+        options=["Todos"] + lista_roles
+    )
+
+    if rol_select != "Todos":
+        ventas_mes = ventas_mes[
+            ventas_mes["rolvendedor"] == rol_select
+        ]
+
+    # =========================
+    # AGRUPACIÓN
+    # =========================
+    col_conversion = next(
+        (c for c in df_ven_tab.columns if "conversion" in c),
+        None
+    )
+
+    if col_conversion:
+        detalle = ventas_mes.groupby(
+            ["referencia", "rolvendedor", "productodeventa", col_conversion]
+        )["cantidad"].sum().reset_index()
+    else:
+        detalle = ventas_mes.groupby(
+            ["referencia", "rolvendedor", "productodeventa"]
+        )["cantidad"].sum().reset_index()
+        st.warning("No se encontró columna de conversión")
+
+    st.dataframe(detalle, use_container_width=True)
+
+
+
+# =========================
+# TAB 4 DESCARGAS
+# =========================
+with tab4:
+    st.title("📥 Descarga de Archivos")
+
+    from io import BytesIO
+
+    # =========================
+    # FUNCIÓN EXCEL
+    # =========================
+    def to_excel(df):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='data')
+        return output.getvalue()
+
+    def to_excel_multi(df1, df2, df3):
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df1.to_excel(writer, index=False, sheet_name='Inventario')
+            df2.to_excel(writer, index=False, sheet_name='Ventas')
+            df3.to_excel(writer, index=False, sheet_name='Consolidado')
+        return output.getvalue()
+
+    # =========================
+    # INVENTARIO
+    # =========================
+    st.subheader("📦 Inventario")
+
+    excel_inv = to_excel(df_inv_fil)
+
+    st.download_button(
+        label="⬇️ Descargar Inventario",
+        data=excel_inv,
+        file_name="inventario.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # =========================
+    # VENTAS
+    # =========================
+    st.subheader("📊 Ventas")
+
+    excel_ven = to_excel(df_ven_fil)
+
+    st.download_button(
+        label="⬇️ Descargar Ventas",
+        data=excel_ven,
+        file_name="ventas.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # =========================
+    # CONSOLIDADO REAL
+    # =========================
+    st.subheader("📊 Consolidado (Ventas vs Inventario)")
+
+    try:
+        df_consolidado = final.copy()
+
+        # 🔥 ROTACIÓN (VENTAS / STOCK)
+        if "stock_filtrado" in df_consolidado.columns:
+            df_consolidado["rotacion"] = (
+                df_consolidado["ventas_mes"] / df_consolidado["stock_filtrado"]
+            ).replace([float("inf"), -float("inf")], 0).fillna(0)
+
+        excel_con = to_excel(df_consolidado)
+
+        st.download_button(
+            label="⬇️ Descargar Consolidado",
+            data=excel_con,
+            file_name="consolidado.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except Exception as e:
+        st.warning("Primero debes cargar o calcular el Tab 2 para generar el consolidado")
+
+    # =========================
+    # ARCHIVO COMPLETO (PRO)
+    # =========================
+    st.subheader("📁 Todo en un solo archivo")
+
+    try:
+        excel_multi = to_excel_multi(df_inv_fil, df_ven_fil, df_consolidado)
+
+        st.download_button(
+            label="⬇️ Descargar Todo (Inventario + Ventas + Consolidado)",
+            data=excel_multi,
+            file_name="reporte_completo.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    except:
+        st.warning("No se pudo generar el archivo completo")
