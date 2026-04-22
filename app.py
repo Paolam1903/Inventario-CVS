@@ -26,10 +26,24 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
 # =========================
 # CARGA
 # =========================
-df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+@st.cache_data
+def cargar_datos(ruta_inventario, ruta_ventas):
+    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+    return df_inv, df_ven
 
+df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
 
+# =========================
+# OPTIMIZACIÓN (NO AFECTA LÓGICA)
+# =========================
+for col in ["grupo", "marca", "sucursal", "referencia"]:
+    if col in df_inv.columns:
+        df_inv[col] = df_inv[col].astype("category")
+
+for col in ["sucursal", "referencia", "rolvendedor"]:
+    if col in df_ven.columns:
+        df_ven[col] = df_ven[col].astype("category")
 
 # =========================
 # LIMPIEZA
@@ -312,6 +326,7 @@ with tab2:
 
         st.dataframe(df_prestamo[[
             "referencia",
+            "grupo",
             "serial",
             col_fecha,
             col_asesor,
