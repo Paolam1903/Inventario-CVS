@@ -92,27 +92,32 @@ if sucursal:
 # =========================
 password_ok = True
 
-if "Oficina Principal" in df_inv_fil["sucursal"].unique():
+# =========================
+# PROTECCIÓN OFICINA PRINCIPAL (CORRECTA)
+# =========================
+password_ok = True
+
+if "Oficina Principal" in sucursal:
 
     if "auth_principal" not in st.session_state:
         st.session_state["auth_principal"] = False
 
     if not st.session_state["auth_principal"]:
-
-        password = st.text_input(
-            "🔒 Contraseña requerida para Oficina Principal",
+        password = st.sidebar.text_input(
+            "🔒 Contraseña Oficina Principal",
             type="password"
         )
 
-        if password == "1234":  # 🔴 cambia esta clave
+        if password == "1234":
             st.session_state["auth_principal"] = True
-            password_ok = True
         else:
-            password_ok = False
             st.warning("Acceso restringido a Oficina Principal")
+            st.stop()
 
-if not password_ok:
-    st.stop()
+# reset si quita la sucursal
+if "Oficina Principal" not in sucursal:
+    st.session_state["auth_principal"] = False
+
 
 
 # =========================
