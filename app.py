@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 22 de abril vs Ventas de enero al 21 de abril")
+st.title("📊 Inventario del 16 de abril vs Ventas de enero al 15 de abril")
 
 # =========================
 # RUTAS
@@ -26,38 +26,17 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
 # =========================
 # CARGA
 # =========================
-@st.cache_data
-def cargar_datos(ruta_inventario, ruta_ventas):
-    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
-    return df_inv, df_ven
+df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
 
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
 
-# =========================
-# OPTIMIZACIÓN (NO AFECTA LÓGICA)
-# =========================
-for col in ["grupo", "marca", "sucursal", "referencia"]:
-    if col in df_inv.columns:
-        df_inv[col] = df_inv[col].astype("category")
-
-for col in ["sucursal", "referencia", "rolvendedor"]:
-    if col in df_ven.columns:
-        df_ven[col] = df_ven[col].astype("category")
 
 # =========================
 # LIMPIEZA
 # =========================
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
-
-# 🔥 LIMPIEZA PRIMERO
 df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
 df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
-# 🔥 DESPUÉS optimizas
-for col in ["grupo", "marca", "sucursal", "referencia"]:
-    if col in df_inv.columns:
-        df_inv[col] = df_inv[col].astype("category")
 # =========================
 # FECHAS
 # =========================
@@ -124,7 +103,6 @@ if "Oficina Principal" in sucursal:
 # reset si quita la sucursal
 if "Oficina Principal" not in sucursal:
     st.session_state["auth_principal"] = False
-
 
 
 # =========================
@@ -338,7 +316,6 @@ with tab2:
 
         st.dataframe(df_prestamo[[
             "referencia",
-            "grupo",
             "serial",
             col_fecha,
             col_asesor,
