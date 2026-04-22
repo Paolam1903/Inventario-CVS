@@ -48,9 +48,16 @@ for col in ["sucursal", "referencia", "rolvendedor"]:
 # =========================
 # LIMPIEZA
 # =========================
+df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
+
+# 🔥 LIMPIEZA PRIMERO
 df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
 df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
+# 🔥 DESPUÉS optimizas
+for col in ["grupo", "marca", "sucursal", "referencia"]:
+    if col in df_inv.columns:
+        df_inv[col] = df_inv[col].astype("category")
 # =========================
 # FECHAS
 # =========================
