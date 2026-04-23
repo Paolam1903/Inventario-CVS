@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 16 de abril vs Ventas de enero al 15 de abril")
+st.title("📊 Inventario del 22 de abril vs Ventas de enero al 21 de abril")
 
 # =========================
 # RUTAS
@@ -22,20 +22,75 @@ ruta_ventas = "ventas.xlsx"
 if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
     st.error("Faltan archivos")
     st.stop()
+    
 
 # =========================
 # CARGA
 # =========================
-df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+@st.cache_data
+def calcular_consolidado(df_ven_tab, df_inv_tab, df_inv):
+    hoy = datetime.today()
+    mes_actual = pd.Period(hoy, freq="M")
 
+    df_ven_tab = df_ven_tab.copy()
+    df_ven_tab["mes"] = df_ven_tab["fecha"].dt.to_period("M")
 
+    ventas_mes = df_ven_tab[df_ven_tab["mes"] == mes_actual]
+
+    ventas_ref = ventas_mes.groupby(["referencia"])["cantidad"].sum().reset_index(name="ventas_mes_actual")
+
+    inv_ref = df_inv.groupby(["referencia"])["serial"].count().reset_index(name="Total_Bodega_general")
+    inv_ref_fil = df_inv_tab.groupby(["referencia"])["serial"].count().reset_index(name="Total_Bodega_Sucursal")
+
+    meses_validos = [mes_actual - i for i in range(1, 4)]
+    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
+
+    ventas_mes_ref = df_3m.groupby(["referencia", "mes"])["cantidad"].sum().reset_index()
+
+    ventas_mes_ref = ventas_mes_ref.pivot_table(
+        index="referencia",
+        columns="mes",
+        values="cantidad",
+        fill_value=0
+    )
+
+    prom = ventas_mes_ref.mean(axis=1).round(0).astype(int).reset_index(name="promedio_3m")
+
+    final = ventas_ref.merge(inv_ref, on="referencia", how="left")
+    final = final.merge(inv_ref_fil, on="referencia", how="left")
+    final = final.merge(prom, on="referencia", how="left")
+
+    final.fillna(0, inplace=True)
+
+    return final, ventas_mes
 
 # =========================
-# LIMPIEZA
+# CARGA DE DATOS (FALTANTE)
+# =========================
+@st.cache_data
+def cargar_datos(ruta_inventario, ruta_ventas):
+    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+    return df_inv, df_ven
+
+df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
+
+# =========================
+# LIMPIEZA (ANTES DE TODO)
 # =========================
 df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
 df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
+
+# =========================
+# OPTIMIZACIÓN
+# =========================
+for col in ["grupo", "marca", "sucursal", "referencia"]:
+    if col in df_inv.columns:
+        df_inv[col] = df_inv[col].astype("category")
+
+for col in ["sucursal", "referencia", "rolvendedor"]:
+    if col in df_ven.columns:
+        df_ven[col] = df_ven[col].astype("category")
 
 # =========================
 # FECHAS
@@ -72,18 +127,10 @@ if sucursal:
     df_inv_fil = df_inv_fil[df_inv_fil["sucursal"].isin(sucursal)]
     df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
 
-
 # =========================
 # PROTECCIÓN OFICINA PRINCIPAL
 # =========================
-password_ok = True
-
-# =========================
-# PROTECCIÓN OFICINA PRINCIPAL (CORRECTA)
-# =========================
-password_ok = True
-
-if "Oficina Principal" in sucursal:
+if sucursal and "Oficina Principal" in sucursal:
 
     if "auth_principal" not in st.session_state:
         st.session_state["auth_principal"] = False
@@ -101,7 +148,7 @@ if "Oficina Principal" in sucursal:
             st.stop()
 
 # reset si quita la sucursal
-if "Oficina Principal" not in sucursal:
+if not sucursal or "Oficina Principal" not in sucursal:
     st.session_state["auth_principal"] = False
 
 
@@ -116,24 +163,15 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚦 Semáforo", "📆 Prestamos sub", "📊 
 with tab1:
     st.subheader("📦 Inventario")
 
-    # =========================
-    # FILTRO POR REFERENCIA
-    # =========================
     lista_ref = sorted(df_inv_fil["referencia"].dropna().unique())
 
-    ref_select = st.selectbox(
-        "Selecciona una referencia",
-        options=["Todas"] + lista_ref
-    )
+    ref_select = st.selectbox("Selecciona una referencia", options=["Todas"] + lista_ref)
 
     if ref_select != "Todas":
         df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
     else:
         df_inv_tab = df_inv_fil.copy()
 
-    # =========================
-    # SEMÁFORO POR MES
-    # =========================
     hoy = datetime.today()
     mes_actual = pd.Period(hoy, freq="M")
     mes_1 = mes_actual - 1
@@ -153,16 +191,10 @@ with tab1:
 
     df_inv_tab["semaforo"] = df_inv_tab["mes_traslado"].apply(semaforo)
 
-    # =========================
-    # DETALLE CON FILTROS
-    # =========================
     st.subheader("Detalle Inventario con Semáforo")
 
     df_detalle = df_inv_tab.copy()
 
-    # =========================
-    # FILTROS
-    # =========================
     col1, col2 = st.columns(2)
 
     with col1:
@@ -179,29 +211,16 @@ with tab1:
             default=df_detalle["descestado"].dropna().unique()
         )
 
-    # aplicar filtros
     df_detalle = df_detalle[
         df_detalle["semaforo"].isin(filtro_semaforo) &
         df_detalle["descestado"].isin(filtro_estado)
     ]
 
-    # =========================
-    # MOSTRAR TABLA
-    # =========================
     st.dataframe(df_detalle[[
-        "grupo",
-        "sucursal",
-        "marca",
-        "referencia",
-        "serial",
-        "fecha_ultimo_traslado",
-        "descestado",
-        "semaforo"
+        "grupo","sucursal","marca","referencia","serial",
+        "fecha_ultimo_traslado","descestado","semaforo"
     ]], use_container_width=True)
 
-    # =========================
-    # RESUMEN AGRUPADO
-    # =========================
     st.subheader("Resumen Inventario")
 
     inv = df_inv_tab.groupby(
@@ -210,9 +229,6 @@ with tab1:
 
     st.dataframe(inv, use_container_width=True)
 
-    # =========================
-    # RESUMEN POSTPAGO / PREPAGO
-    # =========================
     st.subheader("Resumen por Referencia")
 
     base = df_inv_tab.copy()
@@ -237,12 +253,8 @@ with tab1:
     st.dataframe(resumen, use_container_width=True)
 
 
-
 # =========================
-# PRESTAMOS A ASESORES
-# =========================
-# =========================
-# TAB 2 VENTAS
+# TAB 2
 # =========================
 with tab2:
     st.title("📆 Prestamos sub")
@@ -299,31 +311,33 @@ with tab2:
         col2.metric("🔴 +60 días", len(df_prestamo[df_prestamo[col_edad] > 60]))
         col3.metric("🟢 <=30 días", len(df_prestamo[df_prestamo[col_edad] <= 30]))
 
-        # =========================
-        # RESUMEN
-        # =========================
-        resumen = df_prestamo.groupby(
-            ["referencia"]
-        )["serial"].count().reset_index(name="cantidad")
+    # =========================
+    # RESUMEN
+    # =========================
+    resumen = df_prestamo.groupby(
+        ["referencia"]
+    )["serial"].count().reset_index(name="cantidad")
 
-        st.subheader("📊 Resumen por Referencia")
-        st.dataframe(resumen, use_container_width=True)
+    # 🔥 FILTRAR SOLO VALORES MAYORES A 0
+    resumen = resumen[resumen["cantidad"] > 0]
 
-        # =========================
-        # DETALLE
-        # =========================
-        st.subheader("🔍 Detalle")
+    st.subheader("📊 Resumen por Referencia")
+    st.dataframe(resumen, use_container_width=True)
 
-        st.dataframe(df_prestamo[[
-            "referencia",
-            "serial",
-            col_fecha,
-            col_asesor,
-            col_edad,
-            "semaforo"
-        ]], use_container_width=True)
+    # =========================
+    # DETALLE
+    # =========================
+    st.subheader("🔍 Detalle")
 
-
+    st.dataframe(df_prestamo[[
+        "referencia",
+        "grupo",
+        "serial",
+        col_fecha,
+        col_asesor,
+        col_edad,
+        "semaforo"
+    ]], use_container_width=True)
 
 
 # =========================
