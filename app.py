@@ -22,75 +22,20 @@ ruta_ventas = "ventas.xlsx"
 if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
     st.error("Faltan archivos")
     st.stop()
-    
 
 # =========================
 # CARGA
 # =========================
-@st.cache_data
-def calcular_consolidado(df_ven_tab, df_inv_tab, df_inv):
-    hoy = datetime.today()
-    mes_actual = pd.Period(hoy, freq="M")
+df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
 
-    df_ven_tab = df_ven_tab.copy()
-    df_ven_tab["mes"] = df_ven_tab["fecha"].dt.to_period("M")
 
-    ventas_mes = df_ven_tab[df_ven_tab["mes"] == mes_actual]
-
-    ventas_ref = ventas_mes.groupby(["referencia"])["cantidad"].sum().reset_index(name="ventas_mes_actual")
-
-    inv_ref = df_inv.groupby(["referencia"])["serial"].count().reset_index(name="Total_Bodega_general")
-    inv_ref_fil = df_inv_tab.groupby(["referencia"])["serial"].count().reset_index(name="Total_Bodega_Sucursal")
-
-    meses_validos = [mes_actual - i for i in range(1, 4)]
-    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
-
-    ventas_mes_ref = df_3m.groupby(["referencia", "mes"])["cantidad"].sum().reset_index()
-
-    ventas_mes_ref = ventas_mes_ref.pivot_table(
-        index="referencia",
-        columns="mes",
-        values="cantidad",
-        fill_value=0
-    )
-
-    prom = ventas_mes_ref.mean(axis=1).round(0).astype(int).reset_index(name="promedio_3m")
-
-    final = ventas_ref.merge(inv_ref, on="referencia", how="left")
-    final = final.merge(inv_ref_fil, on="referencia", how="left")
-    final = final.merge(prom, on="referencia", how="left")
-
-    final.fillna(0, inplace=True)
-
-    return final, ventas_mes
 
 # =========================
-# CARGA DE DATOS (FALTANTE)
-# =========================
-@st.cache_data
-def cargar_datos(ruta_inventario, ruta_ventas):
-    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
-    return df_inv, df_ven
-
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
-
-# =========================
-# LIMPIEZA (ANTES DE TODO)
+# LIMPIEZA
 # =========================
 df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
 df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
-
-# =========================
-# OPTIMIZACIÓN
-# =========================
-for col in ["grupo", "marca", "sucursal", "referencia"]:
-    if col in df_inv.columns:
-        df_inv[col] = df_inv[col].astype("category")
-
-for col in ["sucursal", "referencia", "rolvendedor"]:
-    if col in df_ven.columns:
-        df_ven[col] = df_ven[col].astype("category")
 
 # =========================
 # FECHAS
@@ -127,6 +72,7 @@ if sucursal:
     df_inv_fil = df_inv_fil[df_inv_fil["sucursal"].isin(sucursal)]
     df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
 
+
 # =========================
 # PROTECCIÓN OFICINA PRINCIPAL
 # =========================
@@ -152,10 +98,12 @@ if not sucursal or "Oficina Principal" not in sucursal:
     st.session_state["auth_principal"] = False
 
 
+
+
 # =========================
 # TABS
 # =========================
-tab1, tab2, tab3, tab4 = st.tabs(["🚦 Semáforo", "📆 Prestamos sub", "📊 Resumen", "📥 Descarga de Archivos"])
+tab1, tab2, tab3, tab4 = st.tabs(["📦 Inventario", "📆 Prestamos sub", "📊 Resumen", "📥 Descarga de Archivos"])
 
 # =========================
 # TAB SEMAFORO
@@ -163,21 +111,30 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚦 Semáforo", "📆 Prestamos sub", "📊 
 with tab1:
     st.subheader("📦 Inventario")
 
+    # =========================
+    # FILTRO POR REFERENCIA
+    # =========================
     lista_ref = sorted(df_inv_fil["referencia"].dropna().unique())
 
-    ref_select = st.selectbox("Selecciona una referencia", options=["Todas"] + lista_ref)
+    ref_select = st.selectbox(
+        "Selecciona una referencia",
+        options=["Todas"] + lista_ref
+    )
 
     if ref_select != "Todas":
-        df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
+        df_inv_tab1 = df_inv_fil[df_inv_fil["referencia"] == ref_select].copy()
     else:
-        df_inv_tab = df_inv_fil.copy()
+        df_inv_tab1 = df_inv_fil.copy(deep=True)
 
+    # =========================
+    # SEMÁFORO POR MES
+    # =========================
     hoy = datetime.today()
     mes_actual = pd.Period(hoy, freq="M")
     mes_1 = mes_actual - 1
     mes_2 = mes_actual - 2
 
-    df_inv_tab["mes_traslado"] = df_inv_tab["fecha_ultimo_traslado"].dt.to_period("M")
+    df_inv_tab1["mes_traslado"] = df_inv_tab1["fecha_ultimo_traslado"].dt.to_period("M")
 
     def semaforo(mes):
         if pd.isna(mes):
@@ -189,49 +146,71 @@ with tab1:
         else:
             return "🔴 Rojo"
 
-    df_inv_tab["semaforo"] = df_inv_tab["mes_traslado"].apply(semaforo)
+    df_inv_tab1["semaforo"] = df_inv_tab1["mes_traslado"].apply(semaforo)
 
+    # =========================
+    # DETALLE CON FILTROS
+    # =========================
     st.subheader("Detalle Inventario con Semáforo")
 
-    df_detalle = df_inv_tab.copy()
+    df_detalle_tab1 = df_inv_tab1.copy()
 
+    # =========================
+    # FILTROS
+    # =========================
     col1, col2 = st.columns(2)
 
     with col1:
         filtro_semaforo = st.multiselect(
             "Filtrar por Semáforo",
-            options=df_detalle["semaforo"].dropna().unique(),
-            default=df_detalle["semaforo"].dropna().unique()
+            options=df_detalle_tab1["semaforo"].dropna().unique(),
+            default=df_detalle_tab1["semaforo"].dropna().unique()
         )
 
     with col2:
         filtro_estado = st.multiselect(
             "Filtrar por Estado",
-            options=df_detalle["descestado"].dropna().unique(),
-            default=df_detalle["descestado"].dropna().unique()
+            options=df_detalle_tab1["descestado"].dropna().unique(),
+            default=df_detalle_tab1["descestado"].dropna().unique()
         )
 
-    df_detalle = df_detalle[
-        df_detalle["semaforo"].isin(filtro_semaforo) &
-        df_detalle["descestado"].isin(filtro_estado)
+    # aplicar filtros
+    df_detalle = df_detalle_tab1[
+        df_detalle_tab1["semaforo"].isin(filtro_semaforo) &
+        df_detalle_tab1["descestado"].isin(filtro_estado)
     ]
 
+    # =========================
+    # MOSTRAR TABLA
+    # =========================
     st.dataframe(df_detalle[[
-        "grupo","sucursal","marca","referencia","serial",
-        "fecha_ultimo_traslado","descestado","semaforo"
+        "grupo",
+        "sucursal",
+        "marca",
+        "referencia",
+        "serial",
+        "fecha_ultimo_traslado",
+        "descestado",
+        "semaforo"
     ]], use_container_width=True)
 
+    # =========================
+    # RESUMEN AGRUPADO
+    # =========================
     st.subheader("Resumen Inventario")
 
-    inv = df_inv_tab.groupby(
+    inv = df_inv_tab1.groupby(
         ["grupo", "sucursal", "marca", "referencia"]
     )["serial"].count().reset_index(name="cantidad")
 
     st.dataframe(inv, use_container_width=True)
 
+    # =========================
+    # RESUMEN POSTPAGO / PREPAGO
+    # =========================
     st.subheader("Resumen por Referencia")
 
-    base = df_inv_tab.copy()
+    base = df_inv_tab1.copy()
     base["grupo"] = base["grupo"].str.upper().str.strip()
 
     resumen = base.pivot_table(
@@ -253,8 +232,12 @@ with tab1:
     st.dataframe(resumen, use_container_width=True)
 
 
+
 # =========================
-# TAB 2
+# PRESTAMOS A ASESORES
+# =========================
+# =========================
+# TAB 2 VENTAS
 # =========================
 with tab2:
     st.title("📆 Prestamos sub")
@@ -311,33 +294,31 @@ with tab2:
         col2.metric("🔴 +60 días", len(df_prestamo[df_prestamo[col_edad] > 60]))
         col3.metric("🟢 <=30 días", len(df_prestamo[df_prestamo[col_edad] <= 30]))
 
-    # =========================
-    # RESUMEN
-    # =========================
-    resumen = df_prestamo.groupby(
-        ["referencia"]
-    )["serial"].count().reset_index(name="cantidad")
+        # =========================
+        # RESUMEN
+        # =========================
+        resumen = df_prestamo.groupby(
+            ["referencia"]
+        )["serial"].count().reset_index(name="cantidad")
 
-    # 🔥 FILTRAR SOLO VALORES MAYORES A 0
-    resumen = resumen[resumen["cantidad"] > 0]
+        st.subheader("📊 Resumen por Referencia")
+        st.dataframe(resumen, use_container_width=True)
 
-    st.subheader("📊 Resumen por Referencia")
-    st.dataframe(resumen, use_container_width=True)
+        # =========================
+        # DETALLE
+        # =========================
+        st.subheader("🔍 Detalle")
 
-    # =========================
-    # DETALLE
-    # =========================
-    st.subheader("🔍 Detalle")
+        st.dataframe(df_prestamo[[
+            "referencia",
+            "serial",
+            col_fecha,
+            col_asesor,
+            col_edad,
+            "semaforo"
+        ]], use_container_width=True)
 
-    st.dataframe(df_prestamo[[
-        "referencia",
-        "grupo",
-        "serial",
-        col_fecha,
-        col_asesor,
-        col_edad,
-        "semaforo"
-    ]], use_container_width=True)
+
 
 
 # =========================
