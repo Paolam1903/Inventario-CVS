@@ -255,7 +255,11 @@ with tab2:
     else:
 
         # 🔍 detectar columnas automáticamente
-        col_asesor = [c for c in df_prestamo.columns if "asesor" in c.lower()][0]
+        cols = [c for c in df_prestamo.columns if "asesor" in c.lower()]
+        if not cols:
+            st.error("No se encontró columna asesor")
+            st.stop()
+        col_asesor = cols[0]
         col_edad = [c for c in df_prestamo.columns if "edadprestamo" in c.lower()][0]
         col_fecha = [c for c in df_prestamo.columns if "fechaprestamo" in c.lower()][0]
 
@@ -503,38 +507,42 @@ with tab4:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-    # =========================
-    # CONSOLIDADO REAL
-    # =========================
-    st.subheader("📊 Consolidado (Ventas vs Inventario)")
+# =========================
+# CONSOLIDADO REAL
+# =========================
+st.subheader("📊 Consolidado (Ventas vs Inventario)")
 
-    try:
-        df_consolidado = final.copy()
+try:
+    df_consolidado = final.copy()
 
-        # 🔥 ROTACIÓN (VENTAS / STOCK)
-        if "stock_filtrado" in df_consolidado.columns:
-            df_consolidado["rotacion"] = (
-                df_consolidado["ventas_mes"] / df_consolidado["stock_filtrado"]
-            ).replace([float("inf"), -float("inf")], 0).fillna(0)
+    # 🔥 ROTACIÓN (VENTAS / STOCK)  ✅ CORREGIDO
+    df_consolidado["rotacion"] = (
+        df_consolidado["ventas_mes_actual"] / df_consolidado["Total_Bodega_Sucursal"]
+    ).replace([float("inf"), -float("inf")], 0).fillna(0)
 
-        excel_con = to_excel(df_consolidado)
+    excel_con = to_excel(df_consolidado)
 
-        st.download_button(
-            label="⬇️ Descargar Consolidado",
-            data=excel_con,
-            file_name="consolidado.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        label="⬇️ Descargar Consolidado",
+        data=excel_con,
+        file_name="consolidado.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
-    except Exception as e:
-        st.warning("Primero debes cargar o calcular el Tab 2 para generar el consolidado")
+except Exception as e:
+    st.error("Error en consolidado:")
+    st.text(str(e))
 
-    # =========================
-    # ARCHIVO COMPLETO (PRO)
-    # =========================
-    st.subheader("📁 Todo en un solo archivo")
+# =========================
+# ARCHIVO COMPLETO (PRO)
+# =========================
+st.subheader("📁 Todo en un solo archivo")
 
-    try:
+try:
+    # 🔥 asegurar que exista df_consolidado
+    if "df_consolidado" not in locals():
+        st.warning("Primero genera el consolidado en el Tab 3")
+    else:
         excel_multi = to_excel_multi(df_inv_fil, df_ven_fil, df_consolidado)
 
         st.download_button(
@@ -544,5 +552,6 @@ with tab4:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    except:
-        st.warning("No se pudo generar el archivo completo")
+except Exception as e:
+    st.error("Error generando archivo completo:")
+    st.text(str(e))
