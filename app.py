@@ -14,31 +14,39 @@ if os.path.exists("logo.png"):
 st.title("📊 Inventario vs Ventas")
 
 # =========================
-# CARGA DE ARCHIVOS (SEGURO)
+# VALIDAR ARCHIVOS
 # =========================
-st.sidebar.subheader("📁 Cargar archivos")
+st.sidebar.subheader("📁 Archivos cargados automáticamente")
 
-archivo_inv = st.sidebar.file_uploader("Inventario", type=["xlsx"])
-archivo_ven = st.sidebar.file_uploader("Ventas", type=["xlsx"])
+ruta_inventario = "inventario.xlsx"
+ruta_ventas = "ventas.xlsx"
 
-if archivo_inv is None or archivo_ven is None:
-    st.warning("Por favor carga los archivos para continuar")
+# 🔥 DEBUG CLAVE (esto evita el "Oh no")
+archivos = os.listdir()
+st.sidebar.write("Archivos en sistema:", archivos)
+
+if ruta_inventario not in archivos:
+    st.error(f"No se encontró el archivo: {ruta_inventario}")
+    st.stop()
+
+if ruta_ventas not in archivos:
+    st.error(f"No se encontró el archivo: {ruta_ventas}")
     st.stop()
 
 # =========================
 # CACHE
 # =========================
 @st.cache_data
-def cargar_datos(archivo_inv, archivo_ven):
-    df_inv = pd.read_excel(archivo_inv)
-    df_ven = pd.read_excel(archivo_ven)
-    return df_inv, df_ven
+def cargar_datos():
+    try:
+        df_inv = pd.read_excel(ruta_inventario)
+        df_ven = pd.read_excel(ruta_ventas)
+        return df_inv, df_ven
+    except Exception as e:
+        st.error(f"Error leyendo Excel: {e}")
+        st.stop()
 
-try:
-    df_inv, df_ven = cargar_datos(archivo_inv, archivo_ven)
-except Exception as e:
-    st.error(f"Error cargando archivos: {e}")
-    st.stop()
+df_inv, df_ven = cargar_datos()
 
 # =========================
 # LIMPIEZA SEGURA
@@ -71,20 +79,9 @@ except Exception as e:
 # =========================
 st.sidebar.title("Filtros")
 
-if "grupo" in df_inv.columns:
-    grupo = st.sidebar.multiselect("Grupo", df_inv["grupo"].dropna().unique())
-else:
-    grupo = []
-
-if "marca" in df_inv.columns:
-    marca = st.sidebar.multiselect("Marca", df_inv["marca"].dropna().unique())
-else:
-    marca = []
-
-if "sucursal" in df_inv.columns:
-    sucursal = st.sidebar.multiselect("Sucursal", df_inv["sucursal"].dropna().unique())
-else:
-    sucursal = []
+grupo = st.sidebar.multiselect("Grupo", df_inv["grupo"].dropna().unique()) if "grupo" in df_inv.columns else []
+marca = st.sidebar.multiselect("Marca", df_inv["marca"].dropna().unique()) if "marca" in df_inv.columns else []
+sucursal = st.sidebar.multiselect("Sucursal", df_inv["sucursal"].dropna().unique()) if "sucursal" in df_inv.columns else []
 
 df_inv_fil = df_inv
 df_ven_fil = df_ven
@@ -118,14 +115,13 @@ if sucursal and "Oficina Principal" in sucursal:
             st.stop()
 
 # =========================
-# PRUEBA VISUAL (para validar que ya no rompe)
+# PRUEBA VISUAL
 # =========================
 st.subheader("Vista previa inventario")
 st.dataframe(df_inv_fil.head())
 
 st.subheader("Vista previa ventas")
 st.dataframe(df_ven_fil.head())
-
 
 # =========================
 # TABS
