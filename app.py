@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 28 de abril vs Ventas de enero al 27 de abril")
+st.title("📊 Inventario del 16 de abril vs Ventas de enero al 15 de abril")
 
 # =========================
 # RUTAS
@@ -23,16 +23,11 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
     st.error("Faltan archivos")
     st.stop()
 
-# 👇 CACHE (SOLO UNA VEZ)
-@st.cache_data
-def cargar_datos(ruta_inventario, ruta_ventas):
-    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
-    return df_inv, df_ven
-
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
-
-
+# =========================
+# CARGA
+# =========================
+df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
 
 
 
@@ -77,37 +72,10 @@ if sucursal:
     df_inv_fil = df_inv_fil[df_inv_fil["sucursal"].isin(sucursal)]
     df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
 
-
-# =========================
-# PROTECCIÓN OFICINA PRINCIPAL
-# =========================
-if sucursal and "Oficina Principal" in sucursal:
-
-    if "auth_principal" not in st.session_state:
-        st.session_state["auth_principal"] = False
-
-    if not st.session_state["auth_principal"]:
-        password = st.sidebar.text_input(
-            "🔒 Contraseña Oficina Principal",
-            type="password"
-        )
-
-        if password == "1234":
-            st.session_state["auth_principal"] = True
-        else:
-            st.warning("Acceso restringido a Oficina Principal")
-            st.stop()
-
-# reset si quita la sucursal
-if not sucursal or "Oficina Principal" not in sucursal:
-    st.session_state["auth_principal"] = False
-
-
-
 # =========================
 # TABS
 # =========================
-tab1, tab2, tab3, tab4 = st.tabs(["📦 Inventario", "📆 Prestamos sub", "📊 Resumen", "📥 Descarga de Archivos"])
+tab1, tab2, tab3 = st.tabs(["🚦 Semáforo", "📊 Resumen", "📥 Descarga de Archivos"])
 
 # =========================
 # TAB SEMAFORO
@@ -126,9 +94,9 @@ with tab1:
     )
 
     if ref_select != "Todas":
-        df_inv_tab1 = df_inv_fil[df_inv_fil["referencia"] == ref_select].copy()
+        df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
     else:
-        df_inv_tab1 = df_inv_fil.copy(deep=True)
+        df_inv_tab = df_inv_fil.copy()
 
     # =========================
     # SEMÁFORO POR MES
@@ -138,7 +106,7 @@ with tab1:
     mes_1 = mes_actual - 1
     mes_2 = mes_actual - 2
 
-    df_inv_tab1["mes_traslado"] = df_inv_tab1["fecha_ultimo_traslado"].dt.to_period("M")
+    df_inv_tab["mes_traslado"] = df_inv_tab["fecha_ultimo_traslado"].dt.to_period("M")
 
     def semaforo(mes):
         if pd.isna(mes):
@@ -150,51 +118,21 @@ with tab1:
         else:
             return "🔴 Rojo"
 
-    df_inv_tab1["semaforo"] = df_inv_tab1["mes_traslado"].apply(semaforo)
+    df_inv_tab["semaforo"] = df_inv_tab["mes_traslado"].apply(semaforo)
 
     # =========================
-    # DETALLE CON FILTROS
+    # DETALLE CON SEMÁFORO
     # =========================
     st.subheader("Detalle Inventario con Semáforo")
 
-    df_detalle_tab1 = df_inv_tab1.copy()
-
-    # =========================
-    # FILTROS
-    # =========================
-    col1, col2 = st.columns(2)
-
-    with col1:
-        filtro_semaforo = st.multiselect(
-            "Filtrar por Semáforo",
-            options=df_detalle_tab1["semaforo"].dropna().unique(),
-            default=df_detalle_tab1["semaforo"].dropna().unique()
-        )
-
-    with col2:
-        filtro_estado = st.multiselect(
-            "Filtrar por Estado",
-            options=df_detalle_tab1["descestado"].dropna().unique(),
-            default=df_detalle_tab1["descestado"].dropna().unique()
-        )
-
-    # aplicar filtros
-    df_detalle = df_detalle_tab1[
-        df_detalle_tab1["semaforo"].isin(filtro_semaforo) &
-        df_detalle_tab1["descestado"].isin(filtro_estado)
-    ]
-
-    # =========================
-    # MOSTRAR TABLA
-    # =========================
-    st.dataframe(df_detalle[[
+    st.dataframe(df_inv_tab[[
         "grupo",
         "sucursal",
         "marca",
         "referencia",
         "serial",
         "fecha_ultimo_traslado",
-        "descestado",
+        "estado",
         "semaforo"
     ]], use_container_width=True)
 
@@ -203,7 +141,7 @@ with tab1:
     # =========================
     st.subheader("Resumen Inventario")
 
-    inv = df_inv_tab1.groupby(
+    inv = df_inv_tab.groupby(
         ["grupo", "sucursal", "marca", "referencia"]
     )["serial"].count().reset_index(name="cantidad")
 
@@ -214,7 +152,7 @@ with tab1:
     # =========================
     st.subheader("Resumen por Referencia")
 
-    base = df_inv_tab1.copy()
+    base = df_inv_tab.copy()
     base["grupo"] = base["grupo"].str.upper().str.strip()
 
     resumen = base.pivot_table(
@@ -235,105 +173,16 @@ with tab1:
 
     st.dataframe(resumen, use_container_width=True)
 
-
-
 # =========================
-# PRESTAMOS A ASESORES
+# TAB RESUMEN
+# =========================
+# =========================
+# TAB 2 VENTAS
 # =========================
 # =========================
 # TAB 2 VENTAS
 # =========================
 with tab2:
-    st.title("📆 Prestamos sub")
-
-    df_prestamo = df_inv_fil[
-        df_inv_fil["descestado"] == "Prestamo Asesor"
-    ].copy()
-
-    if df_prestamo.empty:
-        st.info("No hay equipos en préstamo con los filtros actuales")
-    else:
-
-        # 🔍 detectar columnas automáticamente
-        cols = [c for c in df_prestamo.columns if "asesor" in c.lower()]
-        if not cols:
-            st.error("No se encontró columna asesor")
-            st.stop()
-        col_asesor = cols[0]
-        col_edad = [c for c in df_prestamo.columns if "edadprestamo" in c.lower()][0]
-        col_fecha = [c for c in df_prestamo.columns if "fechaprestamo" in c.lower()][0]
-
-        # =========================
-        # FILTRO POR ASESOR
-        # =========================
-        lista_asesores = sorted(df_prestamo[col_asesor].dropna().unique())
-
-        asesor_select = st.selectbox(
-            "👤 Selecciona un Asesor",
-            options=["Todos"] + lista_asesores
-        )
-
-        if asesor_select != "Todos":
-            df_prestamo = df_prestamo[
-                df_prestamo[col_asesor] == asesor_select
-            ]
-
-        # =========================
-        # SEMÁFORO
-        # =========================
-        def semaforo_prestamo(dias):
-            if pd.isna(dias):
-                return "⚪ Sin dato"
-            elif dias <= 30:
-                return "🟢 Verde"
-            elif dias <= 60:
-                return "🟡 Amarillo"
-            else:
-                return "🔴 Rojo"
-
-        df_prestamo["semaforo"] = df_prestamo[col_edad].apply(semaforo_prestamo)
-
-        # =========================
-        # MÉTRICAS
-        # =========================
-        col1, col2, col3 = st.columns(3)
-
-        col1.metric("Total equipos", len(df_prestamo))
-        col2.metric("🔴 +60 días", len(df_prestamo[df_prestamo[col_edad] > 60]))
-        col3.metric("🟢 <=30 días", len(df_prestamo[df_prestamo[col_edad] <= 30]))
-
-        # =========================
-        # RESUMEN
-        # =========================
-        resumen = df_prestamo.groupby(
-            ["referencia"]
-        )["serial"].count().reset_index(name="cantidad")
-
-        st.subheader("📊 Resumen por Referencia")
-        st.dataframe(resumen, use_container_width=True)
-
-        # =========================
-        # DETALLE
-        # =========================
-        st.subheader("🔍 Detalle")
-
-        st.dataframe(df_prestamo[[
-            "referencia",
-            "grupo",
-            "serial",
-            col_fecha,
-            col_asesor,
-            col_edad,
-            "semaforo"
-        ]], use_container_width=True)
-
-
-
-
-# =========================
-# TAB 3 VENTAS
-# =========================
-with tab3:
     st.title("📊 Ventas vs Inventario")
 
     hoy = datetime.today()
@@ -410,29 +259,13 @@ with tab3:
 
     final.fillna(0, inplace=True)
 
+    st.dataframe(final, use_container_width=True)
+
     # =========================
     # DETALLE VENTAS
     # =========================
     st.subheader("Detalle Ventas")
 
-    # =========================
-    # FILTRO POR ROL VENDEDOR
-    # =========================
-    lista_roles = sorted(ventas_mes["rolvendedor"].dropna().unique())
-
-    rol_select = st.selectbox(
-        "Filtrar por Rol Vendedor",
-        options=["Todos"] + lista_roles
-    )
-
-    if rol_select != "Todos":
-        ventas_mes = ventas_mes[
-            ventas_mes["rolvendedor"] == rol_select
-        ]
-
-    # =========================
-    # AGRUPACIÓN
-    # =========================
     col_conversion = next(
         (c for c in df_ven_tab.columns if "conversion" in c),
         None
@@ -453,9 +286,12 @@ with tab3:
 
 
 # =========================
-# TAB 4 DESCARGAS
+# TAB 3 DESCARGAS
 # =========================
-with tab4:
+# =========================
+# TAB 3 DESCARGAS
+# =========================
+with tab3:
     st.title("📥 Descarga de Archivos")
 
     from io import BytesIO
@@ -505,42 +341,38 @@ with tab4:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# =========================
-# CONSOLIDADO REAL
-# =========================
-st.subheader("📊 Consolidado (Ventas vs Inventario)")
+    # =========================
+    # CONSOLIDADO REAL
+    # =========================
+    st.subheader("📊 Consolidado (Ventas vs Inventario)")
 
-try:
-    df_consolidado = final.copy()
+    try:
+        df_consolidado = final.copy()
 
-    # 🔥 ROTACIÓN (VENTAS / STOCK)  ✅ CORREGIDO
-    df_consolidado["rotacion"] = (
-        df_consolidado["ventas_mes_actual"] / df_consolidado["Total_Bodega_Sucursal"]
-    ).replace([float("inf"), -float("inf")], 0).fillna(0)
+        # 🔥 ROTACIÓN (VENTAS / STOCK)
+        if "stock_filtrado" in df_consolidado.columns:
+            df_consolidado["rotacion"] = (
+                df_consolidado["ventas_mes"] / df_consolidado["stock_filtrado"]
+            ).replace([float("inf"), -float("inf")], 0).fillna(0)
 
-    excel_con = to_excel(df_consolidado)
+        excel_con = to_excel(df_consolidado)
 
-    st.download_button(
-        label="⬇️ Descargar Consolidado",
-        data=excel_con,
-        file_name="consolidado.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        st.download_button(
+            label="⬇️ Descargar Consolidado",
+            data=excel_con,
+            file_name="consolidado.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
-except Exception as e:
-    st.error("Error en consolidado:")
-    st.text(str(e))
+    except Exception as e:
+        st.warning("Primero debes cargar o calcular el Tab 2 para generar el consolidado")
 
-# =========================
-# ARCHIVO COMPLETO (PRO)
-# =========================
-st.subheader("📁 Todo en un solo archivo")
+    # =========================
+    # ARCHIVO COMPLETO (PRO)
+    # =========================
+    st.subheader("📁 Todo en un solo archivo")
 
-try:
-    # 🔥 asegurar que exista df_consolidado
-    if "df_consolidado" not in locals():
-        st.warning("Primero genera el consolidado en el Tab 3")
-    else:
+    try:
         excel_multi = to_excel_multi(df_inv_fil, df_ven_fil, df_consolidado)
 
         st.download_button(
@@ -550,6 +382,5 @@ try:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-except Exception as e:
-    st.error("Error generando archivo completo:")
-    st.text(str(e))
+    except:
+        st.warning("No se pudo generar el archivo completo")
