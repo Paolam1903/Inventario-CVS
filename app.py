@@ -11,61 +11,83 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 28 de abril vs Ventas de enero al 27 de abril")
+st.title("📊 Inventario vs Ventas")
 
 # =========================
-# RUTAS
+# CARGA DE ARCHIVOS (SEGURO)
 # =========================
-ruta_inventario = "inventario.xlsx"
-ruta_ventas = "ventas.xlsx"
+st.sidebar.subheader("📁 Cargar archivos")
 
-if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
-    st.error("Faltan archivos")
+archivo_inv = st.sidebar.file_uploader("Inventario", type=["xlsx"])
+archivo_ven = st.sidebar.file_uploader("Ventas", type=["xlsx"])
+
+if archivo_inv is None or archivo_ven is None:
+    st.warning("Por favor carga los archivos para continuar")
     st.stop()
 
-# 👇 CACHE (SOLO UNA VEZ)
+# =========================
+# CACHE
+# =========================
 @st.cache_data
-def cargar_datos(ruta_inventario, ruta_ventas):
-    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+def cargar_datos(archivo_inv, archivo_ven):
+    df_inv = pd.read_excel(archivo_inv)
+    df_ven = pd.read_excel(archivo_ven)
     return df_inv, df_ven
 
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
-
-
-
-
-
-# =========================
-# LIMPIEZA
-# =========================
-df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
-df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
+try:
+    df_inv, df_ven = cargar_datos(archivo_inv, archivo_ven)
+except Exception as e:
+    st.error(f"Error cargando archivos: {e}")
+    st.stop()
 
 # =========================
-# FECHAS
+# LIMPIEZA SEGURA
 # =========================
-df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
-df_inv["fecha_ingreso"] = pd.to_datetime(df_inv["fecha_ingreso"], errors="coerce")
-df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
+try:
+    df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
+    df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
-# =========================
-# SERIAL LIMPIO
-# =========================
-df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+    if "fecha_ultimo_traslado" in df_inv.columns:
+        df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
+
+    if "fecha_ingreso" in df_inv.columns:
+        df_inv["fecha_ingreso"] = pd.to_datetime(df_inv["fecha_ingreso"], errors="coerce")
+
+    if "fecha" in df_ven.columns:
+        df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
+
+    if "serial" in df_inv.columns:
+        df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+
+    if "serial" in df_ven.columns:
+        df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+
+except Exception as e:
+    st.error(f"Error en limpieza de datos: {e}")
+    st.stop()
 
 # =========================
 # FILTROS
 # =========================
 st.sidebar.title("Filtros")
 
-grupo = st.sidebar.multiselect("Grupo", df_inv["grupo"].unique())
-marca = st.sidebar.multiselect("Marca", df_inv["marca"].unique())
-sucursal = st.sidebar.multiselect("Sucursal", df_inv["sucursal"].unique())
+if "grupo" in df_inv.columns:
+    grupo = st.sidebar.multiselect("Grupo", df_inv["grupo"].dropna().unique())
+else:
+    grupo = []
 
-df_inv_fil = df_inv.copy()
-df_ven_fil = df_ven.copy()
+if "marca" in df_inv.columns:
+    marca = st.sidebar.multiselect("Marca", df_inv["marca"].dropna().unique())
+else:
+    marca = []
+
+if "sucursal" in df_inv.columns:
+    sucursal = st.sidebar.multiselect("Sucursal", df_inv["sucursal"].dropna().unique())
+else:
+    sucursal = []
+
+df_inv_fil = df_inv
+df_ven_fil = df_ven
 
 if grupo:
     df_inv_fil = df_inv_fil[df_inv_fil["grupo"].isin(grupo)]
@@ -75,11 +97,11 @@ if marca:
 
 if sucursal:
     df_inv_fil = df_inv_fil[df_inv_fil["sucursal"].isin(sucursal)]
-    df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
-
+    if "sucursal" in df_ven.columns:
+        df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
 
 # =========================
-# PROTECCIÓN OFICINA PRINCIPAL
+# PROTECCIÓN
 # =========================
 if sucursal and "Oficina Principal" in sucursal:
 
@@ -87,22 +109,22 @@ if sucursal and "Oficina Principal" in sucursal:
         st.session_state["auth_principal"] = False
 
     if not st.session_state["auth_principal"]:
-        password = st.sidebar.text_input(
-            "🔒 Contraseña Oficina Principal",
-            type="password"
-        )
+        password = st.sidebar.text_input("🔒 Contraseña Oficina Principal", type="password")
 
         if password == "1234":
             st.session_state["auth_principal"] = True
         else:
-            st.warning("Acceso restringido a Oficina Principal")
+            st.warning("Acceso restringido")
             st.stop()
 
-# reset si quita la sucursal
-if not sucursal or "Oficina Principal" not in sucursal:
-    st.session_state["auth_principal"] = False
+# =========================
+# PRUEBA VISUAL (para validar que ya no rompe)
+# =========================
+st.subheader("Vista previa inventario")
+st.dataframe(df_inv_fil.head())
 
-
+st.subheader("Vista previa ventas")
+st.dataframe(df_ven_fil.head())
 
 
 # =========================
