@@ -26,15 +26,19 @@ st.title("📊 Inventario vs Ventas")
 # =========================
 # VALIDAR ARCHIVOS
 # =========================
-st.sidebar.subheader("📁 Archivos cargados automáticamente")
+ver_debug = False
 
 ruta_inventario = "inventario.xlsx"
 ruta_ventas = "ventas.xlsx"
 
-# 🔥 DEBUG CLAVE (esto evita el "Oh no")
 archivos = os.listdir()
-st.sidebar.write("Archivos en sistema:", archivos)
 
+# 👇 SOLO SE MUESTRA SI ACTIVAS DEBUG
+if ver_debug:
+    st.sidebar.subheader("📁 Archivos cargados automáticamente")
+    st.sidebar.write("Archivos en sistema:", archivos)
+
+# validación normal (esto sí se queda)
 if ruta_inventario not in archivos:
     st.error(f"No se encontró el archivo: {ruta_inventario}")
     st.stop()
