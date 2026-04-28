@@ -23,11 +23,16 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
     st.error("Faltan archivos")
     st.stop()
 
-# =========================
-# CARGA
-# =========================
-df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+# 👇 CACHE (SOLO UNA VEZ)
+@st.cache_data
+def cargar_datos(ruta_inventario, ruta_ventas):
+    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+    return df_inv, df_ven
+
+df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
+
+
 
 
 
@@ -96,7 +101,6 @@ if sucursal and "Oficina Principal" in sucursal:
 # reset si quita la sucursal
 if not sucursal or "Oficina Principal" not in sucursal:
     st.session_state["auth_principal"] = False
-
 
 
 
@@ -311,6 +315,7 @@ with tab2:
 
         st.dataframe(df_prestamo[[
             "referencia",
+            "grupo",
             "serial",
             col_fecha,
             col_asesor,
