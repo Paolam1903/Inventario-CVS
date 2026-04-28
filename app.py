@@ -2,6 +2,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
+import traceback
+
+try:
+    # TODO tu código aquí
+    pass
+except Exception as e:
+    import streamlit as st
+    st.error("ERROR REAL:")
+    st.text(str(e))
+    st.text(traceback.format_exc())
 
 st.set_page_config(layout="wide")
 
@@ -56,7 +66,8 @@ try:
     df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
     if "fecha_ultimo_traslado" in df_inv.columns:
-        df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
+        if "fecha_ultimo_traslado" in df_inv.columns:
+            df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
 
     if "fecha_ingreso" in df_inv.columns:
         df_inv["fecha_ingreso"] = pd.to_datetime(df_inv["fecha_ingreso"], errors="coerce")
@@ -114,14 +125,7 @@ if sucursal and "Oficina Principal" in sucursal:
             st.warning("Acceso restringido")
             st.stop()
 
-# =========================
-# PRUEBA VISUAL
-# =========================
-st.subheader("Vista previa inventario")
-st.dataframe(df_inv_fil.head())
 
-st.subheader("Vista previa ventas")
-st.dataframe(df_ven_fil.head())
 
 # =========================
 # TABS
