@@ -43,6 +43,24 @@ df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
 df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
 # =========================
+# ADAPTAR NUEVO ARCHIVO DE VENTAS
+# =========================
+
+df_ven = df_ven.rename(columns={
+    "fecha_factura": "fecha",
+    "rol": "rolvendedor",
+    "indicador_conversion": "conversion"
+})
+
+# crear columna faltante para no romper el código
+if "productodeventa" not in df_ven.columns:
+    df_ven["productodeventa"] = df_ven["referencia"]
+
+# asegurar tipos correctos
+
+df_ven["cantidad"] = pd.to_numeric(df_ven["cantidad"], errors="coerce").fillna(0)
+
+# =========================
 # FECHAS
 # =========================
 df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
@@ -53,7 +71,15 @@ df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
 # SERIAL LIMPIO
 # =========================
 df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+if "serial" in df_ven.columns:
+    df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+
+# =========================
+# PROTEGER COLUMNAS OPCIONALES (VENTAS)
+# =========================
+for col in ["serial", "productodeventa"]:
+    if col not in df_ven.columns:
+        df_ven[col] = ""
 
 # =========================
 # FILTROS
@@ -489,21 +515,13 @@ with tab4:
     def to_excel(df):
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='data')
-        return output.getvalue()
-
-    def to_excel_multi(df1, df2, df3):
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df1.to_excel(writer, index=False, sheet_name='Inventario')
-            df2.to_excel(writer, index=False, sheet_name='Ventas')
-            df3.to_excel(writer, index=False, sheet_name='Consolidado')
+            df.to_excel(writer, index=False, sheet_name='Inventario')
         return output.getvalue()
 
     # =========================
     # INVENTARIO
     # =========================
-    st.subheader("📦 Inventario")
+    st.subheader("📦 Descargar Inventario")
 
     excel_inv = to_excel(df_inv_fil)
 
@@ -513,72 +531,3 @@ with tab4:
         file_name="inventario.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
-    # =========================
-    # VENTAS
-    # =========================
-    st.subheader("📊 Ventas")
-
-    excel_ven = to_excel(df_ven_fil)
-
-    st.download_button(
-        label="⬇️ Descargar Ventas",
-        data=excel_ven,
-        file_name="ventas.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    # =========================
-    # CONSOLIDADO REAL
-    # =========================
-    st.subheader("📊 Consolidado (Ventas vs Inventario)")
-
-    try:
-        df_consolidado = final.copy()
-
-        # 🔥 ROTACIÓN (VENTAS / STOCK)  ✅ CORREGIDO
-        df_consolidado["rotacion"] = (
-            df_consolidado["ventas_mes_actual"] / df_consolidado["Total_Bodega_Sucursal"]
-        ).replace([float("inf"), -float("inf")], 0).fillna(0)
-
-        excel_con = to_excel(df_consolidado)
-
-        st.download_button(
-            label="⬇️ Descargar Consolidado",
-            data=excel_con,
-            file_name="consolidado.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-    except Exception as e:
-        st.error("Error en consolidado:")
-        st.text(str(e))
-
-    # =========================
-    # ARCHIVO COMPLETO (PRO)
-    # =========================
-    st.subheader("📁 Todo en un solo archivo")
-
-    try:
-        # 🔥 asegurar que exista df_consolidado
-        if "df_consolidado" not in locals():
-            st.warning("Primero genera el consolidado en el Tab 3")
-        else:
-            excel_multi = to_excel_multi(df_inv_fil, df_ven_fil, df_consolidado)
-
-            st.download_button(
-                label="⬇️ Descargar Todo (Inventario + Ventas + Consolidado)",
-                data=excel_multi,
-                file_name="reporte_completo.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-    except Exception as e:
-        st.error("Error generando archivo completo:")
-        st.text(str(e))
-
-    df_consolidado = st.session_state.get("final")
-
-    if df_consolidado is None:
-        st.warning("Primero genera el consolidado en TAB 3")
-        st.stop()
