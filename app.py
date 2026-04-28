@@ -23,7 +23,7 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
     st.error("Faltan archivos")
     st.stop()
 
-# 👇 AQUÍ VA EL CACHE
+# 👇 CACHE (SOLO UNA VEZ)
 @st.cache_data
 def cargar_datos(ruta_inventario, ruta_ventas):
     df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
@@ -32,16 +32,7 @@ def cargar_datos(ruta_inventario, ruta_ventas):
 
 df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
 
-# =========================
-# CARGA (OPTIMIZADA)
-# =========================
-@st.cache_data
-def cargar_datos(ruta_inventario, ruta_ventas):
-    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
-    return df_inv, df_ven
 
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
 
 
 
