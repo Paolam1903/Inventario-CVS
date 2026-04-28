@@ -410,8 +410,6 @@ with tab3:
 
     final.fillna(0, inplace=True)
 
-    st.dataframe(final, use_container_width=True)
-
     # =========================
     # DETALLE VENTAS
     # =========================
