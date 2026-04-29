@@ -23,16 +23,11 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
     st.error("Faltan archivos")
     st.stop()
 
-# 👇 CACHE (SOLO UNA VEZ)
-@st.cache_data
-def cargar_datos(ruta_inventario, ruta_ventas):
-    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
-    return df_inv, df_ven
-
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
-
-
+# =========================
+# CARGA
+# =========================
+df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
 
 
 
@@ -41,24 +36,6 @@ df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
 # =========================
 df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
 df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
-
-# =========================
-# ADAPTAR NUEVO ARCHIVO DE VENTAS
-# =========================
-
-df_ven = df_ven.rename(columns={
-    "fecha_factura": "fecha",
-    "rol": "rolvendedor",
-    "indicador_conversion": "conversion"
-})
-
-# crear columna faltante para no romper el código
-if "productodeventa" not in df_ven.columns:
-    df_ven["productodeventa"] = df_ven["referencia"]
-
-# asegurar tipos correctos
-
-df_ven["cantidad"] = pd.to_numeric(df_ven["cantidad"], errors="coerce").fillna(0)
 
 # =========================
 # FECHAS
@@ -71,15 +48,7 @@ df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
 # SERIAL LIMPIO
 # =========================
 df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-if "serial" in df_ven.columns:
-    df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-
-# =========================
-# PROTEGER COLUMNAS OPCIONALES (VENTAS)
-# =========================
-for col in ["serial", "productodeventa"]:
-    if col not in df_ven.columns:
-        df_ven[col] = ""
+df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
 
 # =========================
 # FILTROS
@@ -102,6 +71,11 @@ if marca:
 if sucursal:
     df_inv_fil = df_inv_fil[df_inv_fil["sucursal"].isin(sucursal)]
     df_ven_fil = df_ven_fil[df_ven_fil["sucursal"].isin(sucursal)]
+
+inv_ref_fil = df_inv_fil.groupby(
+    ["referencia"]
+)["serial"].count().reset_index(name="Total_Bodega_Sucursal")
+
 
 
 # =========================
@@ -127,6 +101,7 @@ if sucursal and "Oficina Principal" in sucursal:
 # reset si quita la sucursal
 if not sucursal or "Oficina Principal" not in sucursal:
     st.session_state["auth_principal"] = False
+
 
 
 
@@ -157,32 +132,46 @@ with tab1:
         df_inv_tab1 = df_inv_fil.copy(deep=True)
 
     # =========================
-    # SEMÁFORO POR MES
+    # SEMÁFORO POR MES (CORREGIDO Y SEGURO)
     # =========================
+
     hoy = datetime.today()
     mes_actual = pd.Period(hoy, freq="M")
     mes_1 = mes_actual - 1
     mes_2 = mes_actual - 2
 
+    # 🔒 validar que la columna exista
     if "fecha_ultimo_traslado" in df_inv_tab1.columns:
-        df_inv_tab1["mes_traslado"] = pd.to_datetime(
-            df_inv_tab1["fecha_ultimo_traslado"], errors="coerce"
-        ).dt.to_period("M")
+
+        # convertir a datetime seguro
+        df_inv_tab1["fecha_ultimo_traslado"] = pd.to_datetime(
+            df_inv_tab1["fecha_ultimo_traslado"],
+            errors="coerce"
+        )
+
+        # convertir a periodo mes
+        df_inv_tab1["mes_traslado"] = df_inv_tab1["fecha_ultimo_traslado"].dt.to_period("M")
+
     else:
-        df_inv_tab1["mes_traslado"] = None
+        df_inv_tab1["mes_traslado"] = pd.NaT
 
-    if df_inv_tab1["mes_traslado"].isna().all():
-        st.warning("La columna fecha_ultimo_traslado no tiene datos válidos")
 
+    # =========================
+    # FUNCIÓN SEMÁFORO SEGURA
+    # =========================
     def semaforo(mes):
         if pd.isna(mes):
             return "⚪ Sin dato"
-        elif mes in [mes_actual, mes_1]:
-            return "🟢 Verde"
-        elif mes == mes_2:
-            return "🟡 Amarillo"
-        else:
-            return "🔴 Rojo"
+        try:
+            if mes in [mes_actual, mes_1]:
+                return "🟢 Verde"
+            elif mes == mes_2:
+                return "🟡 Amarillo"
+            else:
+                return "🔴 Rojo"
+        except:
+            return "⚪ Error"
+
 
     df_inv_tab1["semaforo"] = df_inv_tab1["mes_traslado"].apply(semaforo)
 
@@ -217,6 +206,9 @@ with tab1:
         df_detalle_tab1["semaforo"].isin(filtro_semaforo) &
         df_detalle_tab1["descestado"].isin(filtro_estado)
     ]
+
+
+
 
     # =========================
     # MOSTRAR TABLA
@@ -289,11 +281,7 @@ with tab2:
     else:
 
         # 🔍 detectar columnas automáticamente
-        cols = [c for c in df_prestamo.columns if "asesor" in c.lower()]
-        if not cols:
-            st.error("No se encontró columna asesor")
-            st.stop()
-        col_asesor = cols[0]
+        col_asesor = [c for c in df_prestamo.columns if "asesor" in c.lower()][0]
         col_edad = [c for c in df_prestamo.columns if "edadprestamo" in c.lower()][0]
         col_fecha = [c for c in df_prestamo.columns if "fechaprestamo" in c.lower()][0]
 
@@ -353,7 +341,6 @@ with tab2:
 
         st.dataframe(df_prestamo[[
             "referencia",
-            "grupo",
             "serial",
             col_fecha,
             col_asesor,
@@ -393,7 +380,6 @@ with tab3:
     # =========================
     # PREPARACIÓN
     # =========================
-    df_ven_tab = df_ven_tab.copy()
     df_ven_tab["mes"] = df_ven_tab["fecha"].dt.to_period("M")
 
     # =========================
@@ -401,27 +387,16 @@ with tab3:
     # =========================
     ventas_mes = df_ven_tab[df_ven_tab["mes"] == mes_actual]
 
-    if ventas_mes.empty:
-        st.warning("No hay ventas en el mes actual con los filtros seleccionados")
-        ventas_ref = pd.DataFrame(columns=["referencia", "ventas_mes_actual"])
-    else:
-        ventas_mes = ventas_mes.copy()
-        ventas_mes["cantidad"] = pd.to_numeric(ventas_mes["cantidad"], errors="coerce").fillna(0)
-
-        ventas_ref = ventas_mes.groupby(
-            ["referencia"]
-        )["cantidad"].sum().reset_index(name="ventas_mes_actual")
+    ventas_ref = ventas_mes.groupby(
+        ["referencia"]
+    )["cantidad"].sum().reset_index(name="ventas_mes_actual")
 
     # =========================
     # INVENTARIO
     # =========================
-    inv_ref = df_inv.groupby(
+    inv_ref = df_inv_tab.groupby(
         ["referencia"]
     )["serial"].count().reset_index(name="Total_Bodega_general")
-
-    inv_ref_fil = df_inv_tab.groupby(
-        ["referencia"]
-    )["serial"].count().reset_index(name="Total_Bodega_Sucursal")
 
     # =========================
     # PROMEDIO 3 MESES CORRECTO
@@ -441,13 +416,30 @@ with tab3:
         fill_value=0
     )
 
-    prom = ventas_mes_ref.mean(axis=1).round(0).astype(int).reset_index(name="promedio_3m")
+    if ventas_mes_ref.empty:
+        prom = pd.DataFrame(columns=["referencia", "promedio_3m"])
+    else:
+        # copiar pivot limpio
+        prom = ventas_mes_ref.copy()
+
+        # promedio de los 3 meses
+        prom["promedio_3m"] = prom.select_dtypes(include="number").mean(axis=1)
+
+        # dejar solo resultado final
+        prom = prom[["promedio_3m"]].reset_index()
+
+        # limpieza final
+        prom["promedio_3m"] = (
+            prom["promedio_3m"]
+            .fillna(0)
+            .round(0)
+            .astype(int)
+        )
 
     # =========================
     # UNIÓN FINAL
     # =========================
     final = ventas_ref.merge(inv_ref, on="referencia", how="left")
-    final = final.merge(inv_ref_fil, on="referencia", how="left")
     final = final.merge(prom, on="referencia", how="left")
 
     final.fillna(0, inplace=True)
@@ -462,10 +454,7 @@ with tab3:
     # =========================
     # FILTRO POR ROL VENDEDOR
     # =========================
-    if ventas_mes.empty:
-        lista_roles = []
-    else:
-        lista_roles = sorted(ventas_mes["rolvendedor"].dropna().unique())
+    lista_roles = sorted(ventas_mes["rolvendedor"].dropna().unique())
 
     rol_select = st.selectbox(
         "Filtrar por Rol Vendedor",
@@ -499,29 +488,21 @@ with tab3:
 
     st.session_state["final"] = final
 
-
-
 # =========================
 # TAB 4 DESCARGAS
 # =========================
 with tab4:
-    st.title("📥 Descarga de Archivos")
+    st.title("📥 Descarga de Inventario")
 
     from io import BytesIO
 
-    # =========================
-    # FUNCIÓN EXCEL
-    # =========================
     def to_excel(df):
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Inventario')
         return output.getvalue()
 
-    # =========================
-    # INVENTARIO
-    # =========================
-    st.subheader("📦 Descargar Inventario")
+    st.subheader("📦 Inventario")
 
     excel_inv = to_excel(df_inv_fil)
 
