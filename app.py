@@ -399,42 +399,52 @@ with tab3:
     )["serial"].count().reset_index(name="Total_Bodega_general")
 
     # =========================
-    # PROMEDIO 3 MESES CORRECTO
+    # PROMEDIO 3 MESES (META MES 4)
     # =========================
+
+    # 🔥 usar último mes REAL de datos
+    mes_actual = df_ven_tab["fecha"].max().to_period("M")
+
+    # últimos 3 meses reales (sin incluir el actual)
     meses_validos = [mes_actual - i for i in range(1, 4)]
 
-    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
+    # filtrar esos meses
+    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)].copy()
 
-    ventas_mes_ref = df_3m.groupby(
-        ["referencia", "mes"]
-    )["cantidad"].sum().reset_index()
-
-    ventas_mes_ref = ventas_mes_ref.pivot_table(
-        index="referencia",
-        columns="mes",
-        values="cantidad",
-        fill_value=0
-    )
-
-    if ventas_mes_ref.empty:
-        prom = pd.DataFrame(columns=["referencia", "promedio_3m"])
+    # validar datos
+    if df_3m.empty:
+        prom = pd.DataFrame(columns=["referencia", "meta_mes_4"])
     else:
-        # copiar pivot limpio
-        prom = ventas_mes_ref.copy()
+        # ventas por referencia por mes
+        ventas_mes_ref = df_3m.groupby(
+            ["referencia", "mes"]
+        )["cantidad"].sum().reset_index()
 
-        # promedio de los 3 meses
-        prom["promedio_3m"] = prom.select_dtypes(include="number").mean(axis=1)
+        # pivot (meses como columnas)
+        ventas_mes_ref = ventas_mes_ref.pivot_table(
+            index="referencia",
+            columns="mes",
+            values="cantidad",
+            fill_value=0
+        )
 
-        # dejar solo resultado final
-        prom = prom[["promedio_3m"]].reset_index()
+        # asegurar 3 meses (si falta alguno lo crea en 0)
+        for m in meses_validos:
+            if m not in ventas_mes_ref.columns:
+                ventas_mes_ref[m] = 0
 
-        # limpieza final
-        prom["promedio_3m"] = (
-            prom["promedio_3m"]
-            .fillna(0)
+        # 🔥 ORDENAR columnas (muy importante)
+        ventas_mes_ref = ventas_mes_ref[sorted(ventas_mes_ref.columns)]
+
+        # 🔥 PROMEDIO REAL
+        ventas_mes_ref["meta_mes_4"] = (
+            ventas_mes_ref.mean(axis=1)
             .round(0)
             .astype(int)
         )
+
+        # resultado final
+        prom = ventas_mes_ref[["meta_mes_4"]].reset_index()
 
     # =========================
     # UNIÓN FINAL
