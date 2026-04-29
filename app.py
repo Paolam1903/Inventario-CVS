@@ -361,6 +361,7 @@ with tab2:
 
         st.dataframe(df_prestamo[[
             "referencia",
+            "grupo",
             "serial",
             col_fecha,
             col_asesor,
