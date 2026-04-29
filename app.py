@@ -26,8 +26,28 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
 # =========================
 # CARGA
 # =========================
-df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
-df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+@st.cache_data(show_spinner="Cargando datos...")
+def cargar_datos(ruta_inventario, ruta_ventas):
+    df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
+    df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
+
+    # limpiar columnas
+    df_inv.columns = df_inv.columns.str.strip().str.lower().str.replace(" ", "_")
+    df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
+
+    # fechas
+    df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
+    df_inv["fecha_ingreso"] = pd.to_datetime(df_inv["fecha_ingreso"], errors="coerce")
+    df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
+
+    # serial limpio
+    df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+    df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+
+    return df_inv, df_ven
+
+
+df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
 
 
 
@@ -357,8 +377,8 @@ with tab2:
 with tab3:
     st.title("📊 Ventas vs Inventario")
 
-    hoy = datetime.today()
-    mes_actual = pd.Period(hoy, freq="M")
+    # 🔥 usar último mes REAL de datos para TODO
+    mes_actual = df_ven_fil["fecha"].max().to_period("M")
 
     # =========================
     # FILTRO POR REFERENCIA
@@ -374,8 +394,8 @@ with tab3:
         df_ven_tab = df_ven_fil[df_ven_fil["referencia"] == ref_select]
         df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
     else:
-        df_ven_tab = df_ven_fil.copy()
-        df_inv_tab = df_inv_fil.copy()
+        df_ven_tab = df_ven_fil
+        df_inv_tab = df_inv_fil
 
     # =========================
     # PREPARACIÓN
@@ -383,7 +403,7 @@ with tab3:
     df_ven_tab["mes"] = df_ven_tab["fecha"].dt.to_period("M")
 
     # =========================
-    # VENTAS MES ACTUAL
+    # VENTAS MES ACTUAL (REAL)
     # =========================
     ventas_mes = df_ven_tab[df_ven_tab["mes"] == mes_actual]
 
@@ -396,31 +416,22 @@ with tab3:
     # =========================
     inv_ref = df_inv_tab.groupby(
         ["referencia"]
-    )["serial"].count().reset_index(name="Total_Bodega_general")
+    )["serial"].count().reset_index(name="Total_Bodega")
 
     # =========================
     # PROMEDIO 3 MESES (META MES 4)
     # =========================
-
-    # 🔥 usar último mes REAL de datos
-    mes_actual = df_ven_tab["fecha"].max().to_period("M")
-
-    # últimos 3 meses reales (sin incluir el actual)
     meses_validos = [mes_actual - i for i in range(1, 4)]
 
-    # filtrar esos meses
-    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)].copy()
+    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
 
-    # validar datos
     if df_3m.empty:
-        prom = pd.DataFrame(columns=["referencia", "meta_mes_4"])
+        prom = pd.DataFrame(columns=["referencia", "promedio"])
     else:
-        # ventas por referencia por mes
         ventas_mes_ref = df_3m.groupby(
             ["referencia", "mes"]
         )["cantidad"].sum().reset_index()
 
-        # pivot (meses como columnas)
         ventas_mes_ref = ventas_mes_ref.pivot_table(
             index="referencia",
             columns="mes",
@@ -428,23 +439,22 @@ with tab3:
             fill_value=0
         )
 
-        # asegurar 3 meses (si falta alguno lo crea en 0)
+        # asegurar los 3 meses
         for m in meses_validos:
             if m not in ventas_mes_ref.columns:
                 ventas_mes_ref[m] = 0
 
-        # 🔥 ORDENAR columnas (muy importante)
+        # ordenar columnas
         ventas_mes_ref = ventas_mes_ref[sorted(ventas_mes_ref.columns)]
 
-        # 🔥 PROMEDIO REAL
-        ventas_mes_ref["meta_mes_4"] = (
+        # promedio real
+        ventas_mes_ref["promedio"] = (
             ventas_mes_ref.mean(axis=1)
             .round(0)
             .astype(int)
         )
 
-        # resultado final
-        prom = ventas_mes_ref[["meta_mes_4"]].reset_index()
+        prom = ventas_mes_ref[["promedio"]].reset_index()
 
     # =========================
     # UNIÓN FINAL
@@ -461,9 +471,6 @@ with tab3:
     # =========================
     st.subheader("Detalle Ventas")
 
-    # =========================
-    # FILTRO POR ROL VENDEDOR
-    # =========================
     lista_roles = sorted(ventas_mes["rolvendedor"].dropna().unique())
 
     rol_select = st.selectbox(
@@ -476,9 +483,6 @@ with tab3:
             ventas_mes["rolvendedor"] == rol_select
         ]
 
-    # =========================
-    # AGRUPACIÓN
-    # =========================
     col_conversion = next(
         (c for c in df_ven_tab.columns if "conversion" in c),
         None
