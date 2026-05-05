@@ -419,19 +419,33 @@ with tab3:
         ["referencia"]
     )["serial"].count().reset_index(name="Total_Bodega")
 
+
     # =========================
-    # PROMEDIO 3 MESES (META MES 4)
+    # PROMEDIO ÚLTIMOS 3 MESES REALES
     # =========================
-    meses_validos = [mes_actual - i for i in range(1, 4)]
+
+    meses_disponibles = sorted(df_ven_tab["mes"].dropna().unique())
+
+    # 🔥 quitar el mes actual (mayo)
+    meses_sin_actual = meses_disponibles[:-1]
+
+    # tomar los últimos 3 antes del actual
+    meses_validos = meses_sin_actual[-3:]
+
+    st.write("Meses usados para promedio:", meses_validos)
 
     df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
 
     if df_3m.empty:
         prom = pd.DataFrame(columns=["referencia", "promedio"])
     else:
-        ventas_mes_ref = df_3m.groupby(
-            ["referencia", "mes"]
-        )["cantidad"].sum().reset_index()
+
+        ventas_mes_ref = (
+            df_3m
+            .groupby(["referencia", "mes"])["cantidad"]
+            .sum()
+            .reset_index()
+        )
 
         ventas_mes_ref = ventas_mes_ref.pivot_table(
             index="referencia",
@@ -440,20 +454,18 @@ with tab3:
             fill_value=0
         )
 
-        # asegurar los 3 meses
-        for m in meses_validos:
-            if m not in ventas_mes_ref.columns:
-                ventas_mes_ref[m] = 0
-
-        # ordenar columnas
-        ventas_mes_ref = ventas_mes_ref[sorted(ventas_mes_ref.columns)]
-
-        # promedio real
+        # promedio SOLO sobre los meses existentes
         ventas_mes_ref["promedio"] = (
             ventas_mes_ref.mean(axis=1)
+            .fillna(0)
             .round(0)
-            .astype(int)
         )
+
+        # 🔥 evitar error de conversión
+        ventas_mes_ref["promedio"] = pd.to_numeric(
+            ventas_mes_ref["promedio"],
+            errors="coerce"
+        ).fillna(0).astype(int)
 
         prom = ventas_mes_ref[["promedio"]].reset_index()
 
