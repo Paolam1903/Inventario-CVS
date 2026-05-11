@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario del 11 de mayo vs Ventas de febrero al 10 de mayo")
+st.title("📊 Inventario al 11 de mayo vs Ventas de febrero al 10 de mayo")
 
 # =========================
 # RUTAS
@@ -370,7 +370,10 @@ with tab2:
         ]], use_container_width=True)
 
 
-
+df_ven_fil["fecha"] = pd.to_datetime(
+    df_ven_fil["fecha"],
+    errors="coerce"
+)
 
 # =========================
 # TAB 3 VENTAS
@@ -379,12 +382,18 @@ with tab3:
     st.title("📊 Ventas vs Inventario")
 
     # 🔥 usar último mes REAL de datos para TODO
-    mes_actual = df_ven_fil["fecha"].max().to_period("M")
+    fecha_max = df_ven_fil["fecha"].dropna().max()
+
+    if pd.isna(fecha_max):
+        st.error("No hay fechas válidas en ventas")
+        st.stop()
+
+    mes_actual = fecha_max.to_period("M")
 
     # =========================
     # FILTRO POR REFERENCIA
     # =========================
-    lista_ref = sorted(df_ven_fil["referencia"].dropna().unique())
+    lista_ref = sorted(df_ven_fil["referencia"].dropna  ().unique())
 
     ref_select = st.selectbox(
         "Selecciona una referencia",
@@ -419,43 +428,59 @@ with tab3:
         ["referencia"]
     )["serial"].count().reset_index(name="Total_Bodega")
 
+    
     # =========================
-    # PROMEDIO 3 MESES (META MES 4)
+    # PROMEDIO 3 MESES
     # =========================
     meses_validos = [mes_actual - i for i in range(1, 4)]
 
     df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
 
-    if df_3m.empty:
-        prom = pd.DataFrame(columns=["referencia", "promedio"])
-    else:
-        ventas_mes_ref = df_3m.groupby(
-            ["referencia", "mes"]
-        )["cantidad"].sum().reset_index()
+    # =========================
+    # PROMEDIO REAL 3 MESES
+    # SIN AFECTAR SUCURSALES NUEVAS
+    # =========================
 
-        ventas_mes_ref = ventas_mes_ref.pivot_table(
-            index="referencia",
-            columns="mes",
-            values="cantidad",
-            fill_value=0
-        )
+    ventas_mes_ref = df_3m.groupby(
+        ["sucursal", "referencia", "mes"]
+    )["cantidad"].sum().reset_index()
 
-        # asegurar los 3 meses
-        for m in meses_validos:
-            if m not in ventas_mes_ref.columns:
-                ventas_mes_ref[m] = 0
+    ventas_mes_ref = ventas_mes_ref.pivot_table(
+        index=["sucursal", "referencia"],
+        columns="mes",
+        values="cantidad",
+        fill_value=0
+    )
 
-        # ordenar columnas
-        ventas_mes_ref = ventas_mes_ref[sorted(ventas_mes_ref.columns)]
+    # asegurar columnas de meses
+    for m in meses_validos:
+        if m not in ventas_mes_ref.columns:
+            ventas_mes_ref[m] = 0
 
-        # promedio real
-        ventas_mes_ref["promedio"] = (
-            ventas_mes_ref.mean(axis=1)
-            .round(0)
-            .astype(int)
-        )
+    # ordenar meses
+    ventas_mes_ref = ventas_mes_ref[sorted(ventas_mes_ref.columns)]
 
-        prom = ventas_mes_ref[["promedio"]].reset_index()
+    # contar solo meses con ventas
+    meses_con_datos = (ventas_mes_ref > 0).sum(axis=1)
+
+    # evitar división por cero
+    meses_con_datos = meses_con_datos.replace(0, 1)
+
+    # promedio real
+    ventas_mes_ref["promedio"] = (
+        ventas_mes_ref.sum(axis=1) / meses_con_datos
+    ).round(0).astype(int)
+
+    # volver a referencia global
+    prom = (
+        ventas_mes_ref.groupby("referencia")["promedio"]
+        .mean()
+        .round(0)
+        .astype(int)
+        .reset_index()
+    )
+
+
 
     # =========================
     # UNIÓN FINAL
