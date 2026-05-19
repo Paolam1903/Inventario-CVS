@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 if os.path.exists("logo.png"):
     st.sidebar.image("logo.png", width=180)
 
-st.title("📊 Inventario al 11 de mayo vs Ventas de febrero al 10 de mayo")
+st.title("📊 Inventario al 19 de mayo vs Ventas de febrero al 18 de mayo")
 
 # =========================
 # RUTAS
