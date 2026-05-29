@@ -81,8 +81,8 @@ try:
     )
 
     # VERIFICAR TAMAÑO
-    st.write("Inventario:", df_inv.shape)
-    st.write("Ventas:", df_ven.shape)
+    # st.write("Inventario:", df_inv.shape)
+    # st.write("Ventas:", df_ven.shape)
 
     # VER COLUMNAS
     # st.write(df_inv.columns)
@@ -286,7 +286,9 @@ with tab1:
         "fecha_ultimo_traslado",
         "descestado",
         "semaforo"
-    ]], use_container_width=True)
+    ]].head(300),
+    width='stretch'
+    )
 
     # =========================
     # RESUMEN AGRUPADO
@@ -297,7 +299,10 @@ with tab1:
         ["grupo", "sucursal", "marca", "referencia"]
     )["serial"].count().reset_index(name="cantidad")
 
-    st.dataframe(inv, use_container_width=True)
+    st.dataframe(
+        inv.head(300),
+        width='stretch'
+    )
 
     # =========================
     # RESUMEN POSTPAGO / PREPAGO
@@ -323,7 +328,10 @@ with tab1:
 
     resumen["TOTAL"] = resumen["POSTPAGO"] + resumen["PREPAGO"]
 
-    st.dataframe(resumen, use_container_width=True)
+    st.dataframe(
+        resumen.head(300),
+        width='stretch'
+    )
 
 
 
@@ -400,7 +408,10 @@ with tab2:
         )["serial"].count().reset_index(name="cantidad")
 
         st.subheader("📊 Resumen por Referencia")
-        st.dataframe(resumen, use_container_width=True)
+        st.dataframe(
+            resumen.head(300),
+            width='stretch'
+        )
 
         # =========================
         # DETALLE
@@ -415,7 +426,9 @@ with tab2:
             col_asesor,
             col_edad,
             "semaforo"
-        ]], use_container_width=True)
+            ]].head(300),
+            width='stretch'
+        )
 
 
 df_ven_fil["fecha"] = pd.to_datetime(
@@ -445,7 +458,7 @@ with tab3:
     # =========================
     # FILTRO POR REFERENCIA
     # =========================
-    lista_ref = sorted(df_ven_fil["referencia"].dropna  ().unique())
+    lista_ref = sorted(df_ven_fil["referencia"].dropna().unique())
 
     ref_select = st.selectbox(
         "Selecciona una referencia",
@@ -453,6 +466,7 @@ with tab3:
     )
 
     if ref_select != "Todas":
+
         df_ven_tab = df_ven_fil[
             df_ven_fil["referencia"] == ref_select
         ].copy()
@@ -460,9 +474,11 @@ with tab3:
         df_inv_tab = df_inv_fil[
             df_inv_fil["referencia"] == ref_select
         ].copy()
+
     else:
-        df_ven_tab = df_ven_fil
-        df_inv_tab = df_inv_fil
+
+        df_ven_tab = df_ven_fil.copy()
+        df_inv_tab = df_inv_fil.copy()
 
     # =========================
     # PREPARACIÓN
@@ -474,6 +490,11 @@ with tab3:
     # VENTAS MES ACTUAL (REAL)
     # =========================
     ventas_mes = df_ven_tab[df_ven_tab["mes"] == mes_actual]
+
+    if "cantidad" not in ventas_mes.columns:
+        st.error("No existe la columna cantidad")
+        st.stop()
+
 
     ventas_ref = ventas_mes.groupby(
         ["referencia"]
@@ -492,34 +513,52 @@ with tab3:
     # =========================
     meses_validos = [mes_actual - i for i in range(1, 4)]
 
-    df_3m = df_ven_tab[df_ven_tab["mes"].isin(meses_validos)]
+    df_3m = df_ven_tab[
+        df_ven_tab["mes"].isin(meses_validos)
+    ]
 
     # =========================
     # PROMEDIO REAL 3 MESES
     # SIN AFECTAR SUCURSALES NUEVAS
     # =========================
 
+    if "cantidad" not in df_3m.columns:
+        st.error("No existe la columna cantidad")
+        st.stop()
+
     ventas_mes_ref = df_3m.groupby(
         ["sucursal", "referencia", "mes"]
     )["cantidad"].sum().reset_index()
 
-    ventas_mes_ref = ventas_mes_ref.pivot_table(
-        index=["sucursal", "referencia"],
-        columns="mes",
-        values="cantidad",
-        fill_value=0
-    )
+    try:
+
+        ventas_mes_ref = ventas_mes_ref.pivot_table(
+            index=["sucursal", "referencia"],
+            columns="mes",
+            values="cantidad",
+            fill_value=0
+        )
+
+    except Exception as e:
+
+        st.error(f"Error calculando promedio: {e}")
+        st.stop()
 
     # asegurar columnas de meses
     for m in meses_validos:
+
         if m not in ventas_mes_ref.columns:
             ventas_mes_ref[m] = 0
 
     # ordenar meses
-    ventas_mes_ref = ventas_mes_ref[sorted(ventas_mes_ref.columns)]
+    ventas_mes_ref = ventas_mes_ref[
+        sorted(ventas_mes_ref.columns)
+    ]
 
     # contar solo meses con ventas
-    meses_con_datos = (ventas_mes_ref > 0).sum(axis=1)
+    meses_con_datos = (
+        ventas_mes_ref > 0
+    ).sum(axis=1)
 
     # evitar división por cero
     meses_con_datos = meses_con_datos.replace(0, 1)
@@ -539,7 +578,6 @@ with tab3:
     )
 
 
-
     # =========================
     # UNIÓN FINAL
     # =========================
@@ -548,7 +586,10 @@ with tab3:
 
     final.fillna(0, inplace=True)
 
-    st.dataframe(final, use_container_width=True)
+    st.dataframe(
+        final.head(300),
+        width='stretch'
+    )
 
 
 
@@ -592,7 +633,10 @@ with tab3:
 
         st.warning("No se encontró columna de conversión")
 
-    st.dataframe(detalle, use_container_width=True)
+    st.dataframe(
+        detalle.head(300),
+        width='stretch'
+    )
 
     st.session_state["final"] = final
 
