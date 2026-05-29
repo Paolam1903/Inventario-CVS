@@ -28,6 +28,7 @@ if not os.path.exists(ruta_inventario) or not os.path.exists(ruta_ventas):
 # =========================
 @st.cache_data(show_spinner="Cargando datos...")
 def cargar_datos(ruta_inventario, ruta_ventas):
+
     df_inv = pd.read_excel(ruta_inventario, engine="openpyxl")
     df_ven = pd.read_excel(ruta_ventas, engine="openpyxl")
 
@@ -36,18 +37,61 @@ def cargar_datos(ruta_inventario, ruta_ventas):
     df_ven.columns = df_ven.columns.str.strip().str.lower().str.replace(" ", "_")
 
     # fechas
-    df_inv["fecha_ultimo_traslado"] = pd.to_datetime(df_inv["fecha_ultimo_traslado"], errors="coerce")
-    df_inv["fecha_ingreso"] = pd.to_datetime(df_inv["fecha_ingreso"], errors="coerce")
-    df_ven["fecha"] = pd.to_datetime(df_ven["fecha"], errors="coerce")
+    df_inv["fecha_ultimo_traslado"] = pd.to_datetime(
+        df_inv["fecha_ultimo_traslado"],
+        errors="coerce"
+    )
+
+    df_inv["fecha_ingreso"] = pd.to_datetime(
+        df_inv["fecha_ingreso"],
+        errors="coerce"
+    )
+
+    df_ven["fecha"] = pd.to_datetime(
+        df_ven["fecha"],
+        errors="coerce"
+    )
 
     # serial limpio
-    df_inv["serial"] = df_inv["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
-    df_ven["serial"] = df_ven["serial"].astype(str).str.replace(".0", "", regex=False).str.strip()
+    df_inv["serial"] = (
+        df_inv["serial"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+        .str.strip()
+    )
+
+    df_ven["serial"] = (
+        df_ven["serial"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+        .str.strip()
+    )
 
     return df_inv, df_ven
 
 
-df_inv, df_ven = cargar_datos(ruta_inventario, ruta_ventas)
+# =========================
+# CARGAR ARCHIVOS
+# =========================
+try:
+
+    df_inv, df_ven = cargar_datos(
+        ruta_inventario,
+        ruta_ventas
+    )
+
+    # VERIFICAR TAMAÑO
+    st.write("Inventario:", df_inv.shape)
+    st.write("Ventas:", df_ven.shape)
+
+    # VER COLUMNAS
+    # st.write(df_inv.columns)
+    # st.write(df_ven.columns)
+
+except Exception as e:
+
+    st.error(f"Error cargando archivos: {e}")
+    st.stop()
 
 
 
@@ -119,7 +163,7 @@ if sucursal and "Oficina Principal" in sucursal:
             st.stop()
 
 # reset si quita la sucursal
-if not sucursal or "Oficina Principal" not in sucursal:
+if "auth_principal" not in st.session_state:
     st.session_state["auth_principal"] = False
 
 
@@ -301,9 +345,13 @@ with tab2:
     else:
 
         # 🔍 detectar columnas automáticamente
-        col_asesor = [c for c in df_prestamo.columns if "asesor" in c.lower()][0]
-        col_edad = [c for c in df_prestamo.columns if "edadprestamo" in c.lower()][0]
-        col_fecha = [c for c in df_prestamo.columns if "fechaprestamo" in c.lower()][0]
+        col_asesor = next((c for c in df_prestamo.columns if "asesor" in c.lower()), None)
+        col_edad = next((c for c in df_prestamo.columns if "edadprestamo" in c.lower()), None)
+        col_fecha = next((c for c in df_prestamo.columns if "fechaprestamo" in c.lower()), None)
+
+        if not col_asesor or not col_edad or not col_fecha:
+            st.error("Faltan columnas necesarias en el archivo")
+            st.stop()
 
         # =========================
         # FILTRO POR ASESOR
@@ -381,6 +429,10 @@ df_ven_fil["fecha"] = pd.to_datetime(
 with tab3:
     st.title("📊 Ventas vs Inventario")
 
+    if df_ven_fil["fecha"].dropna().empty:
+        st.error("No hay fechas válidas en ventas")
+        st.stop()
+
     # 🔥 usar último mes REAL de datos para TODO
     fecha_max = df_ven_fil["fecha"].dropna().max()
 
@@ -401,8 +453,13 @@ with tab3:
     )
 
     if ref_select != "Todas":
-        df_ven_tab = df_ven_fil[df_ven_fil["referencia"] == ref_select]
-        df_inv_tab = df_inv_fil[df_inv_fil["referencia"] == ref_select]
+        df_ven_tab = df_ven_fil[
+            df_ven_fil["referencia"] == ref_select
+        ].copy()
+
+        df_inv_tab = df_inv_fil[
+            df_inv_fil["referencia"] == ref_select
+        ].copy()
     else:
         df_ven_tab = df_ven_fil
         df_inv_tab = df_inv_fil
@@ -410,7 +467,8 @@ with tab3:
     # =========================
     # PREPARACIÓN
     # =========================
-    df_ven_tab["mes"] = df_ven_tab["fecha"].dt.to_period("M")
+    df_ven_tab = df_ven_tab.copy()
+    df_ven_tab.loc[:, "mes"] = df_ven_tab["fecha"].dt.to_period("M")
 
     # =========================
     # VENTAS MES ACTUAL (REAL)
@@ -492,12 +550,21 @@ with tab3:
 
     st.dataframe(final, use_container_width=True)
 
+
+
     # =========================
     # DETALLE VENTAS
     # =========================
     st.subheader("Detalle Ventas")
 
-    lista_roles = sorted(ventas_mes["rolvendedor"].dropna().unique())
+    if "rolvendedor" not in ventas_mes.columns:
+        st.error("No existe la columna rolvendedor")
+        st.stop()
+
+    # CREAR LISTA DE ROLES
+    lista_roles = sorted(
+        ventas_mes["rolvendedor"].dropna().unique()
+    )
 
     rol_select = st.selectbox(
         "Filtrar por Rol Vendedor",
@@ -510,7 +577,7 @@ with tab3:
         ]
 
     col_conversion = next(
-        (c for c in df_ven_tab.columns if "conversion" in c),
+        (c for c in df_ven_tab.columns if "conversion" in c.lower()),
         None
     )
 
@@ -522,11 +589,14 @@ with tab3:
         detalle = ventas_mes.groupby(
             ["referencia", "rolvendedor", "productodeventa"]
         )["cantidad"].sum().reset_index()
+
         st.warning("No se encontró columna de conversión")
 
     st.dataframe(detalle, use_container_width=True)
 
     st.session_state["final"] = final
+
+
 
 # =========================
 # TAB 4 DESCARGAS
